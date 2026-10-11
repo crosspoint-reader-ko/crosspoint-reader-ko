@@ -16,6 +16,7 @@
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/CloudClient.h"
 #include "util/QrUtils.h"
 #include "util/TaskWatchdog.h"
 
@@ -103,6 +104,7 @@ void CrossPointWebServerActivity::onExit() {
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
   state = WebServerActivityState::SHUTTING_DOWN;
+  CloudClient::getInstance().stop();
   stopDnsServer();
   MDNS.end();
 
@@ -282,6 +284,9 @@ void CrossPointWebServerActivity::startWebServer() {
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
     LOG_DBG("WEBACT", "Web server started successfully");
+    // A paired device also opens the cloud tunnel while this screen holds
+    // the STA session; stopped again in onExit() before WiFi goes down.
+    if (!isApMode) CloudClient::getInstance().start();
     lastWifiBars = isApMode ? 0 : barsForRssi(WiFi.RSSI(), 0);
 
     // Force an immediate render since we're transitioning from a subactivity

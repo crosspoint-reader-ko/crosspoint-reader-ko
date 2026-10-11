@@ -25,6 +25,7 @@ enum class SettingAction {
   SdFirmwareUpdate,
   Language,
   SelectSleepScreens,
+  CloudPairing,
   FontSelection,        // Korean: pick the EPUB reader font from SD card
   SystemFontSelection,  // Korean: pick the UI system font from SD card
   // DownloadFonts omitted: the upstream .cpfont download flow is not part of this build.

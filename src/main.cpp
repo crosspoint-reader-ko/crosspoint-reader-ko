@@ -35,6 +35,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/CloudClient.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -508,6 +509,10 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+
+  // Loads the cloud pairing from SD; the tunnel itself only runs while File
+  // Transfer holds a WiFi session (CrossPointWebServerActivity).
+  CloudClient::getInstance().begin();
 
   APP_STATE.loadFromFile();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;

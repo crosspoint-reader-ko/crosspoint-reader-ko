@@ -17,6 +17,7 @@
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
+#include "CloudPairActivity.h"
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
 #include "HomeButtonSettingsActivity.h"
@@ -104,6 +105,7 @@ void SettingsActivity::rebuildSettingsLists() {
   if (halClock.isAvailable()) {
     systemSettings.push_back(SettingInfo::Action(StrId::STR_CLOCK, SettingAction::ClockSettings));
   }
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_CLOUD_PAIRING, SettingAction::CloudPairing));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
@@ -404,6 +406,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::SelectSleepScreens:
         startActivityForResult(std::make_unique<SleepImageSelectionActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::CloudPairing:
+        startActivityForResult(std::make_unique<CloudPairActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::FontSelection:
         startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput),
