@@ -198962,7 +198962,14 @@ static const EpdFontData kopub_14_regular = {
     nullptr,
     kopub_14_regularKernLeftClasses,
     kopub_14_regularKernRightClasses,
+    nullptr,  // kernLeftCodepoints: this font uses the packed class maps above
+    nullptr,  // kernLeftClassIds
+    nullptr,  // kernRightCodepoints
+    nullptr,  // kernRightClassIds
     kopub_14_regularKernMatrix,
+    nullptr,  // kernRowOffsets: this font uses the dense kernMatrix
+    nullptr,  // kernSparseCols
+    nullptr,  // kernSparseValues
     34,
     35,
     34,

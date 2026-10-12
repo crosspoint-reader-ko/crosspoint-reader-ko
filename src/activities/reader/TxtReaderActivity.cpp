@@ -6,18 +6,18 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <Serialization.h>
 #include <Utf8.h>
 
+#include <cstring>
+
 #include "CrossPointSettings.h"
-#include "CrossPointState.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "ProgressFile.h"
 #include "ReaderUtils.h"
-#include "RecentBooksStore.h"
 #include "TxtReaderMenuActivity.h"
-#include "activities/settings/ReaderOptionsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -125,50 +125,84 @@ size_t findBreakPosition(const GfxRenderer& renderer, int fontId, const std::str
 }
 }  // namespace
 
-void TxtReaderActivity::onEnter() {
-  Activity::onEnter();
-
+bool TxtReaderActivity::loadBook() {
+  txt = makeUniqueNoThrow<Txt>(bookPath, "/.crosspoint");
   if (!txt) {
-    return;
+    LOG_ERR("TRS", "Failed to allocate TXT object");
+    return false;
   }
-
-  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-
+  if (!txt->load()) {
+    LOG_ERR("TRS", "Failed to load TXT");
+    txt.reset();
+    return false;
+  }
   txt->setupCacheDir();
+  return true;
+}
 
-  // Save current txt as last opened file and add to recent books
-  auto filePath = txt->getPath();
-  auto fileName = filePath.substr(filePath.rfind('/') + 1);
-  APP_STATE.openEpubPath = filePath;
-  APP_STATE.saveToFile();
-  RECENT_BOOKS.addBook(filePath, fileName, "", "");
+void TxtReaderActivity::onEnter() {
+  ReaderActivity::onEnter();
 
-  // Begin per-book reading time accumulation.
-  readingTimer.start(txt->getCachePath());
-
-  // Trigger first update
-  requestUpdate();
+  // Begin per-book reading time accumulation (only when the book actually loaded;
+  // ReaderActivity::onEnter() already finished this activity otherwise).
+  if (txt) {
+    readingTimer.start(txt->getCachePath());
+  }
 }
 
 void TxtReaderActivity::onExit() {
-  Activity::onExit();
+  ReaderActivity::onExit();
 
   // Persist accumulated session time before tearing down the file.
   readingTimer.stop();
-
-  // Reset orientation back to portrait for the rest of the UI
-  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
   backHistory.clear();
   currentPageLines.clear();
   currentPageLineEndsParagraph.clear();
   currentPageLineStartsParagraph.clear();
-  APP_STATE.readerActivityLoadCount = 0;
-  APP_STATE.saveToFile();
   txt.reset();
 }
 
+void TxtReaderActivity::openReaderMenu() {
+  automaticPageTurnActive = false;
+  const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
+  const int bookProgressPercent = clampPercent(static_cast<int>(progress + 0.5f));
+  // Snapshot orientation: Reader Options (sub-activity of the menu) writes
+  // directly to SETTINGS.orientation, while menu.orientation is the inline
+  // rotate-cycle value. Whichever differs from the snapshot is the user's
+  // intent.
+  const uint8_t menuOrientationSnapshot = SETTINGS.orientation;
+  startActivityForResult(std::make_unique<TxtReaderMenuActivity>(
+                             renderer, mappedInput, txt ? txt->getTitle() : std::string(), estimatedCurrentPage(),
+                             estimatedTotalPages(), bookProgressPercent, SETTINGS.orientation, currentPageTurnOption,
+                             currentPageJumpOption, readingTimer.totalSeconds()),
+                         [this, menuOrientationSnapshot](const ActivityResult& result) {
+                           const auto& menu = std::get<MenuResult>(result.data);
+                           uint8_t finalOrientation = SETTINGS.orientation;
+                           if (menu.orientation != menuOrientationSnapshot) {
+                             finalOrientation = menu.orientation;
+                           }
+                           SETTINGS.orientation = menuOrientationSnapshot;
+                           applyOrientation(finalOrientation);
+                           toggleAutoPageTurn(menu.pageTurnOption);
+                           currentPageJumpOption = menu.pageJumpOption;
+                           skipNextButtonCheck = true;
+                           readingTimer.notifyInput();
+                           if (!result.isCancelled) {
+                             onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
+                           } else {
+                             requestUpdate();
+                           }
+                         });
+}
+
 void TxtReaderActivity::loop() {
+  if (!txt) {
+    return;
+  }
+
+  rememberBookOnceRendered();
+
   // Skip one frame after a sub-activity returns so the release event that
   // closed it doesn't fall through into navigation here.
   if (skipNextButtonCheck) {
@@ -179,11 +213,15 @@ void TxtReaderActivity::loop() {
   // Accumulate reading time. See util/ReadingTimer.h for idle/save semantics.
   readingTimer.tick();
 
+  clearEndOfBookOptionsIfNeeded();
+
   // Auto page turn handling — fire pageTurn(true) on the configured cadence
   // and let any user input cancel it.
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+        mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu ||
+        ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
       automaticPageTurnActive = false;
       readingTimer.notifyInput();
       requestUpdate();
@@ -197,112 +235,115 @@ void TxtReaderActivity::loop() {
       // Auto-turn counts as activity so 5-min idle pause doesn't suspend
       // unattended hands-free reading on the user's chosen cadence.
       readingTimer.notifyInput();
-      pageTurn(true);
+      if (pageTurn(true)) {
+        requestUpdate();
+      }
       return;
     }
   }
 
-  // Open the reader menu on Confirm release.
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  // The end-of-book suggestion menu owns Confirm/Back/navigation while shown.
+  if (handleEndOfBookMenu()) {
     readingTimer.notifyInput();
-    const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
-    const int bookProgressPercent = clampPercent(static_cast<int>(progress + 0.5f));
-    // Snapshot orientation: Reader Options (sub-activity of the menu) writes
-    // directly to SETTINGS.orientation, while menu.orientation is the inline
-    // rotate-cycle value. Whichever differs from the snapshot is the user's
-    // intent.
-    const uint8_t menuOrientationSnapshot = SETTINGS.orientation;
-    startActivityForResult(std::make_unique<TxtReaderMenuActivity>(
-                               renderer, mappedInput, txt ? txt->getTitle() : std::string(), estimatedCurrentPage(),
-                               estimatedTotalPages(), bookProgressPercent, SETTINGS.orientation, currentPageTurnOption,
-                               currentPageJumpOption, readingTimer.totalSeconds()),
-                           [this, menuOrientationSnapshot](const ActivityResult& result) {
-                             const auto& menu = std::get<MenuResult>(result.data);
-                             uint8_t finalOrientation = SETTINGS.orientation;
-                             if (menu.orientation != menuOrientationSnapshot) {
-                               finalOrientation = menu.orientation;
-                             }
-                             SETTINGS.orientation = menuOrientationSnapshot;
-                             applyOrientation(finalOrientation);
-                             toggleAutoPageTurn(menu.pageTurnOption);
-                             currentPageJumpOption = menu.pageJumpOption;
-                             skipNextButtonCheck = true;
-                             readingTimer.notifyInput();
-                             if (!result.isCancelled) {
-                               onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
-                             } else {
-                               requestUpdate();
-                             }
-                           });
     return;
   }
 
-  // Back navigation. Same targets as ReaderUtils::handleBackNavigation (short and long press swap
-  // per backShortToFileBrowser), inlined so this path can also poke the reading timer.
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() >= ReaderUtils::GO_BACK_OR_HOME_MS) {
+  // Open the reader menu on Confirm release, the touch menu gesture, or the
+  // home key's reader-menu action.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+      mappedInput.homeButtonAction() == HomeButtonAction::ReaderMenu ||
+      ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     readingTimer.notifyInput();
-    if (SETTINGS.backShortToFileBrowser) {
-      onGoHome();
-    } else {
-      activityManager.goToFileBrowser(txt ? txt->getPath() : "");
-    }
+    openReaderMenu();
     return;
   }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_BACK_OR_HOME_MS) {
+
+  // Back navigation: ReaderUtils swaps short/long press targets per
+  // SETTINGS.backShortToFileBrowser.
+  if (handleBackNavigation()) {
     readingTimer.notifyInput();
-    if (SETTINGS.backShortToFileBrowser) {
-      activityManager.goToFileBrowser(txt ? txt->getPath() : "");
-    } else {
-      onGoHome();
-    }
     return;
   }
+
+  const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
 
   // Long-press multi-page jump on navigation buttons. When enabled, switch to
   // release-based detection so we can distinguish short tap (single page) from
   // long hold (jumpPages step). When disabled, fall through to the default
   // press-based path below to preserve original snappy feel.
   if (currentPageJumpOption > 0 && currentPageJumpOption < PAGE_JUMP_STEPS_COUNT) {
+    const bool swapFront = mappedInput.isNavDirectionSwapped();
+    const auto prevButton = swapFront ? MappedInputManager::Button::Right : MappedInputManager::Button::Left;
+    const auto nextButton = swapFront ? MappedInputManager::Button::Left : MappedInputManager::Button::Right;
     const bool prevReleased = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
-                              mappedInput.wasReleased(MappedInputManager::Button::Left);
+                              mappedInput.wasReleased(prevButton) || touch.prev;
     const bool nextReleased = mappedInput.wasReleased(MappedInputManager::Button::PageForward) ||
-                              mappedInput.wasReleased(MappedInputManager::Button::Right);
+                              mappedInput.wasReleased(nextButton) || touch.next;
     if (prevReleased || nextReleased) {
       readingTimer.notifyInput();
-      const unsigned long held = mappedInput.getHeldTime();
+      if (handleEndOfBookPageTurn(prevReleased, nextReleased)) {
+        return;
+      }
+      const unsigned long held = (touch.prev || touch.next) ? touch.heldMs : mappedInput.getHeldTime();
       const int step = (held >= PAGE_JUMP_HOLD_MS) ? PAGE_JUMP_STEPS[currentPageJumpOption] : 1;
-      jumpPages(nextReleased ? step : -step);
+      const bool changed = step == 1 ? pageTurn(nextReleased) : jumpPages(nextReleased ? step : -step);
+      if (changed) {
+        requestUpdate();
+      }
       return;
     }
-    // Power button is always release-driven, so honor its configured page-turn
-    // role even while we're intercepting nav-button presses.
-    if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-        mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+    // Power button / home key are always release-driven, so honor their
+    // configured page-turn role even while we're intercepting nav-button presses.
+    if ((SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+         mappedInput.wasReleased(MappedInputManager::Button::Power)) ||
+        mappedInput.homeButtonAction() == HomeButtonAction::NextPage) {
       readingTimer.notifyInput();
-      pageTurn(true);
+      if (handleEndOfBookPageTurn(false, true)) {
+        return;
+      }
+      if (pageTurn(true)) {
+        requestUpdate();
+      }
     }
     return;
   }
 
-  const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   prevTriggered = prevTriggered || touch.prev;
   nextTriggered = nextTriggered || touch.next;
-  (void)fromTilt;  // TXT has no chapter-skip; tilt origin is informational only.
   if (!prevTriggered && !nextTriggered) {
     return;
   }
 
   readingTimer.notifyInput();
-  pageTurn(nextTriggered);
+  if (handleEndOfBookPageTurn(prevTriggered, nextTriggered)) {
+    return;
+  }
+
+  const unsigned long heldMs = (touch.prev || touch.next) ? touch.heldMs : mappedInput.getHeldTime();
+  const bool skip =
+      !fromTilt && SETTINGS.longPressButtonBehavior == SETTINGS.CHAPTER_SKIP && heldMs >= ReaderUtils::SKIP_HOLD_MS;
+
+  bool changed;
+  if (prevTriggered) {
+    changed = skip ? skipPages(-10) : pageTurn(false);
+  } else {
+    changed = skip ? skipPages(10) : pageTurn(true);
+  }
+  if (changed) {
+    requestUpdate();
+  }
 }
 
-void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
-  if (!isForwardTurn) {
+bool TxtReaderActivity::pageTurn(const bool isForward) {
+  // Ignore paging until initializeReader has established the layout.
+  if (!initialized || atEndOfBook) {
+    return false;
+  }
+
+  if (!isForward) {
     if (currentOffset == 0) {
-      return;  // already at start
+      return false;  // already at start
     }
     if (!backHistory.empty()) {
       currentOffset = backHistory.back();
@@ -311,14 +352,14 @@ void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
       currentOffset = findBackwardPageStart(currentOffset);
     }
     lastPageTurnTime = millis();
-    requestUpdate();
-    return;
+    return true;
   }
 
   if (currentEndOffset >= fileSize) {
+    // Past the last page: hand over to the shared end-of-book screen.
     automaticPageTurnActive = false;
-    onGoHome();
-    return;
+    atEndOfBook = true;
+    return true;
   }
   // Push the page we're leaving so Back can return to it, capped so we
   // don't grow forever on very long reads.
@@ -328,19 +369,32 @@ void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
   backHistory.push_back(currentOffset);
   currentOffset = currentEndOffset;
   lastPageTurnTime = millis();
-  requestUpdate();
+  return true;
 }
 
-void TxtReaderActivity::jumpPages(const int deltaPages) {
+bool TxtReaderActivity::skipPages(const int amount) {
+  if (!initialized || atEndOfBook) {
+    return false;
+  }
+  return jumpPages(amount);
+}
+
+bool TxtReaderActivity::isAtEndOfBook() const { return initialized && atEndOfBook; }
+
+void TxtReaderActivity::onReturnFromEndOfBook() {
+  // currentOffset still points at the last page; just leave the end screen.
+  atEndOfBook = false;
+}
+
+bool TxtReaderActivity::jumpPages(const int deltaPages) {
   if (deltaPages == 0 || fileSize == 0) {
-    return;
+    return false;
   }
   // Use the running per-page byte estimate so we can skip without paginating.
   // Without an estimate (very first frame) bail out instead of guessing wildly.
   const size_t perPage = estBytesPerPage > 0 ? estBytesPerPage : 0;
   if (perPage == 0) {
-    pageTurn(deltaPages > 0);
-    return;
+    return pageTurn(deltaPages > 0);
   }
 
   size_t target;
@@ -354,7 +408,7 @@ void TxtReaderActivity::jumpPages(const int deltaPages) {
   target = snapToLineStart(target);
 
   if (target == currentOffset) {
-    return;
+    return false;
   }
   // Only a forward jump lets Back return to the pre-jump page. On a backward
   // jump, pushing the pre-jump offset would make the next PageBack jump
@@ -371,7 +425,7 @@ void TxtReaderActivity::jumpPages(const int deltaPages) {
   currentOffset = target;
   currentEndOffset = target;
   lastPageTurnTime = millis();
-  requestUpdate();
+  return true;
 }
 
 void TxtReaderActivity::jumpToPercent(int percent) {
@@ -391,6 +445,7 @@ void TxtReaderActivity::jumpToPercent(int percent) {
   // Reset history so backward navigation after a jump uses backward-scan,
   // matching the EPUB jump behavior of an effective fresh location.
   backHistory.clear();
+  atEndOfBook = false;
   currentOffset = target;
   currentEndOffset = target;
   lastPageTurnTime = millis();
@@ -475,7 +530,7 @@ void TxtReaderActivity::onReaderMenuConfirm(const TxtReaderMenuActivity::MenuAct
     case TxtReaderMenuActivity::MenuAction::READER_OPTIONS:
       // Reader Options is a sub-activity of the menu, never dispatched here.
       // Layout changes are auto-detected by recomputeLayout() on next render;
-      // orientation is reconciled in the menu's result handler in loop().
+      // orientation is reconciled in the menu's result handler in openReaderMenu().
       break;
   }
 }
@@ -809,7 +864,7 @@ int TxtReaderActivity::estimatedCurrentPage() const {
   return static_cast<int>(currentOffset / estBytesPerPage) + 1;
 }
 
-void TxtReaderActivity::render(RenderLock&&) {
+void TxtReaderActivity::renderBook() {
   if (!txt) {
     return;
   }
@@ -871,8 +926,16 @@ void TxtReaderActivity::render(RenderLock&&) {
   currentPageLineEndsParagraph.clear();
   currentPageLineStartsParagraph.clear();
   const bool pageStartsAtLineBegin = isOffsetAtLineStart(currentOffset);
-  loadPageAtOffset(currentOffset, pageStartsAtLineBegin, currentPageLines, &currentPageLineEndsParagraph,
-                   &currentPageLineStartsParagraph, nextOffset);
+  if (!loadPageAtOffset(currentOffset, pageStartsAtLineBegin, currentPageLines, &currentPageLineEndsParagraph,
+                        &currentPageLineStartsParagraph, nextOffset)) {
+    LOG_ERR("TRS", "Failed to load page at offset %zu", currentOffset);
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
   currentEndOffset = nextOffset;
 
   // Seed the page-count estimate from the first page we render in this
@@ -885,6 +948,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   renderPage();
+  markPageRendered();
 
   LOG_DBG("TRS", "Render complete, saving progress...");
 
@@ -987,17 +1051,19 @@ void TxtReaderActivity::renderPage() {
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
-  renderLines();  // scan pass — text accumulated, no drawing
+  renderLines();      // scan pass — text accumulated, no drawing
+  renderStatusBar();  // scan: a CJK title joins the batch prewarm
   scope.endScanAndPrewarm();
 
   // BW rendering
   renderLines();
   renderStatusBar();
 
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-
   if (SETTINGS.textAntiAliasing) {
+    ReaderUtils::displayBaseWithRefreshCycle(renderer, pagesUntilFullRefresh);
     ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
+  } else {
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
   // scope destructor clears font cache via FontCacheManager
 }
@@ -1016,23 +1082,39 @@ void TxtReaderActivity::renderStatusBar() const {
 }
 
 void TxtReaderActivity::saveProgress() const {
-  HalFile f;
-  if (!Storage.openFileForWrite("TRS", txt->getCachePath() + "/progress.bin", f)) {
-    return;
+  // Same byte layout as the former serialization::writePod() stream, assembled in
+  // a small stack buffer so it can go through ProgressFile::writeAtomic() (no torn
+  // progress.bin on power loss).
+  uint8_t data[64];
+  size_t len = 0;
+  const auto put = [&data, &len](const void* value, const size_t size) {
+    memcpy(data + len, value, size);
+    len += size;
+  };
+  const uint32_t magic = PROGRESS_MAGIC;
+  const uint8_t version = PROGRESS_VERSION;
+  const auto savedFileSize = static_cast<uint32_t>(txt->getFileSize());
+  const auto savedWidth = static_cast<int32_t>(viewportWidth);
+  const auto savedMaxLines = static_cast<int32_t>(maxLinesPerPage);
+  const auto savedFontId = static_cast<int32_t>(cachedFontId);
+  const auto savedMargin = static_cast<int32_t>(cachedScreenMargin);
+  const auto savedOffset = static_cast<uint64_t>(currentOffset);
+  put(&magic, sizeof(magic));
+  put(&version, sizeof(version));
+  put(&savedFileSize, sizeof(savedFileSize));
+  put(&savedWidth, sizeof(savedWidth));
+  put(&savedMaxLines, sizeof(savedMaxLines));
+  put(&savedFontId, sizeof(savedFontId));
+  put(&savedMargin, sizeof(savedMargin));
+  put(&cachedParagraphAlignment, sizeof(cachedParagraphAlignment));
+  put(&cachedCharacterWrap, sizeof(cachedCharacterWrap));
+  put(&cachedExtraParagraphSpacing, sizeof(cachedExtraParagraphSpacing));
+  put(&cachedParagraphIndent, sizeof(cachedParagraphIndent));
+  put(&cachedLineCompression, sizeof(cachedLineCompression));
+  put(&savedOffset, sizeof(savedOffset));
+  if (!ProgressFile::writeAtomic(txt->getCachePath(), data, len)) {
+    LOG_ERR("TRS", "Failed to save progress: offset %zu", currentOffset);
   }
-  serialization::writePod(f, PROGRESS_MAGIC);
-  serialization::writePod(f, PROGRESS_VERSION);
-  serialization::writePod(f, static_cast<uint32_t>(txt->getFileSize()));
-  serialization::writePod(f, static_cast<int32_t>(viewportWidth));
-  serialization::writePod(f, static_cast<int32_t>(maxLinesPerPage));
-  serialization::writePod(f, static_cast<int32_t>(cachedFontId));
-  serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
-  serialization::writePod(f, cachedParagraphAlignment);
-  serialization::writePod(f, cachedCharacterWrap);
-  serialization::writePod(f, cachedExtraParagraphSpacing);
-  serialization::writePod(f, cachedParagraphIndent);
-  serialization::writePod(f, cachedLineCompression);
-  serialization::writePod(f, static_cast<uint64_t>(currentOffset));
 }
 
 void TxtReaderActivity::loadProgress() {

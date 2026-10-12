@@ -13,6 +13,12 @@
 #include <esp_wifi.h>
 // clang-format on
 
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+#include "FirmwareBoardTag.h"
+
 namespace {
 // Korean fork release URL
 constexpr char latestReleaseUrl[] =
@@ -28,8 +34,32 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
   // User-Agent (see HttpDownloader).
   ReleaseJsonParser releaseParser;
-  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, size_t len) {
-    releaseParser.feed(reinterpret_cast<const char*>(data), len);
+  releaseParser.setFirmwareAssetName("");
+  // Each board updates from crosspoint-<version>-<device>.bin. The combined
+  // C3 image uses x3-x4; other asset suffixes match their firmware board tag.
+  // Korean releases publish the X3/X4 image under both this name and the legacy
+  // firmware.bin (for 1.5.x-ko devices); other boards have no Korean asset and
+  // simply report no update.
+  const bool isX4 = board_tag::boardNameLen() == 2 && memcmp(board_tag::boardName(), "x4", 2) == 0;
+  char assetSuffix[20] = "-x3-x4";
+  if (!isX4) {
+    snprintf(assetSuffix, sizeof(assetSuffix), "-%.*s", static_cast<int>(board_tag::boardNameLen()),
+             board_tag::boardName());
+  }
+  char assetName[48] = {};
+  bool assetNameSet = false;
+  const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&](const uint8_t* data, size_t len) {
+    size_t offset = 0;
+    while (!assetNameSet && offset < len) {
+      releaseParser.feed(reinterpret_cast<const char*>(data + offset), 1);
+      offset++;
+      if (releaseParser.foundTag()) {
+        snprintf(assetName, sizeof(assetName), "crosspoint-%s%s.bin", releaseParser.getTagName(), assetSuffix);
+        releaseParser.setFirmwareAssetName(assetName);
+        assetNameSet = true;
+      }
+    }
+    if (offset < len) releaseParser.feed(reinterpret_cast<const char*>(data + offset), len - offset);
     return true;
   });
   if (!ok) {
@@ -46,7 +76,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!releaseParser.foundFirmware()) {
-    LOG_ERR("OTA", "No firmware.bin asset found");
+    LOG_INF("OTA", "No %s asset in latest release", assetName);
     return NO_UPDATE;
   }
 
@@ -207,10 +237,39 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
 
   size_t written = 0;
   bool writeFailed = false;
+  // Upstream wrong-device guard, applied while streaming so a wrong image is abandoned
+  // early: buffer the first 14 header bytes to read chip_id (esp_image_header_t offset 12),
+  // and scan for an embedded board tag naming another board (FirmwareBoardTag.h).
+  // flashFromSdPath() re-validates both before touching flash.
+  uint8_t hdr[14];
+  size_t hdrLen = 0;
+  bool wrongChip = false;
+  board_tag::Scanner tagScanner;
 
   esp_wifi_set_ps(WIFI_PS_NONE);
   const bool fetchOk = HttpDownloader::fetchUrl(otaUrl, [&](const uint8_t* data, const size_t len) {
     if (len == 0) return true;
+    if (hdrLen < sizeof(hdr)) {
+      const size_t take = len < sizeof(hdr) - hdrLen ? len : sizeof(hdr) - hdrLen;
+      std::memcpy(hdr + hdrLen, data, take);
+      hdrLen += take;
+      if (hdrLen == sizeof(hdr)) {
+        uint16_t imageChip;
+        std::memcpy(&imageChip, hdr + 12, sizeof(imageChip));
+        const uint16_t deviceChip = firmware_flash::runningPartitionChipId();
+        if (deviceChip != 0xFFFF && imageChip != deviceChip) {
+          LOG_ERR("OTA", "wrong chip: image=0x%04X device=0x%04X", imageChip, deviceChip);
+          wrongChip = true;
+          return false;  // abort the transfer
+        }
+      }
+    }
+    tagScanner.feed(data, len);
+    if (tagScanner.mismatch()) {
+      LOG_ERR("OTA", "wrong board: image=%s device=%.*s", tagScanner.foundName(),
+              static_cast<int>(board_tag::boardNameLen()), board_tag::boardName());
+      return false;  // abort the transfer
+    }
     const size_t wrote = sdFile.write(data, len);
     if (wrote != len) {
       LOG_ERR("OTA", "SD write short @%u (got=%u want=%u)", static_cast<unsigned>(written),
@@ -228,6 +287,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   // Explicit close required before flashFromSdPath re-opens the same path for read.
   sdFile.close();
 
+  if (wrongChip || tagScanner.mismatch()) {
+    // Abort before anything reaches flash; drop the partial SD cache so the SD update
+    // screen never offers it.
+    LOG_ERR("OTA", "Firmware install aborted: wrong device");
+    Storage.remove(kOtaSdPath);
+    lastError = "wrong_device";
+    return WRONG_DEVICE_ERROR;
+  }
   if (writeFailed) {
     return INTERNAL_UPDATE_ERROR;  // lastError already set
   }
@@ -275,6 +342,9 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     char buf[32];
     snprintf(buf, sizeof(buf), "flash:%s", firmware_flash::resultName(fr));
     lastError = buf;
+    if (fr == firmware_flash::Result::BAD_CHIP || fr == firmware_flash::Result::WRONG_BOARD) {
+      return WRONG_DEVICE_ERROR;
+    }
     return INTERNAL_UPDATE_ERROR;
   }
 

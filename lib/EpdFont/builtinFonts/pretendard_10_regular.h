@@ -20959,7 +20959,14 @@ static const EpdFontData pretendard_10_regular = {
     nullptr,
     pretendard_10_regularKernLeftClasses,
     pretendard_10_regularKernRightClasses,
+    nullptr,  // kernLeftCodepoints: this font uses the packed class maps above
+    nullptr,  // kernLeftClassIds
+    nullptr,  // kernRightCodepoints
+    nullptr,  // kernRightClassIds
     pretendard_10_regularKernMatrix,
+    nullptr,  // kernRowOffsets: this font uses the dense kernMatrix
+    nullptr,  // kernSparseCols
+    nullptr,  // kernSparseValues
     733,
     731,
     173,

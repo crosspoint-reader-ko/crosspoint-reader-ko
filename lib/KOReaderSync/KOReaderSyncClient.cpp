@@ -1,6 +1,7 @@
 #include "KOReaderSyncClient.h"
 
 #include <ArduinoJson.h>
+#include <HalMemory.h>
 #include <Logging.h>
 #include <SecureHttpClient.h>
 #include <base64.h>
@@ -16,33 +17,10 @@ namespace {
 constexpr char DEVICE_NAME[] = "CrossPoint";
 constexpr char DEVICE_ID[] = "crosspoint-reader";
 
-// KOSync's TLS-1.3 servers can't be reached through the precompiled system
-// mbedTLS (TLS 1.3 is stubbed out), so requests run over wolfSSL via
-// SecureHttpClient. The handshake still needs working heap; gate on it. wolfSSL's
-// footprint is smaller than mbedTLS's old ~48KB peak, but keep a conservative
-// floor. Check both total free heap and largest contiguous block so fragmented
-// heap does not fall through into a failed TLS allocation path.
-// MEMFIX-PORT: TLS heap gate; portable
-// Field data (July 2026): launching sync from a reader session lands at
-// 51.9-58.2 KB free / 42-53 KB maxAlloc after WiFi comes up. wolfSSL handles
-// allocation failure by returning MEMORY_E (no abort under -fno-exceptions),
-// so an optimistic attempt degrades to the same clean "sync failed" as the
-// gate — the gate only needs to keep out states where a doomed handshake
-// would waste tens of seconds, not guarantee success.
-//
-// Free and largest-block have separate requirements: with SP ECC
-// (WOLFSSL_HAVE_SP_ECC) the handshake's crypto uses fixed 256-bit arrays, so
-// the largest single TLS allocation is the ~17 KB wolfSSL record buffer, not
-// a run of fast-math bignums. A handshake was measured succeeding inside a
-// 43 KB largest block; requiring 50 KB contiguous refused syncs that fit.
-//
-// The 35 KB free floor covers the measured peak of what remains after the SP
-// ECC + X25519 work: session object plus record buffer plus RSA cert-verify
-// temps (2 KB apiece at FP_MAX_BITS 8192) totals ~30-40 KB transient. The old
-// 50 KB floor was calibrated against the fast-math bignum failure mode that
-// SP ECC removed, and sat inside the 51.9-58.2 KB band a reading session
-// normally leaves, refusing syncs that would have succeeded. A wrong guess
-// here fails soft: MEMORY_E aborts the handshake within its 15 s deadline.
+// wolfSSL uses the default allocator, which can use PSRAM on supported builds.
+// Keep a free-space floor and room for a full TLS record when the server does
+// not negotiate our smaller record limit. These are preflight margins, not a
+// guarantee that a handshake will fit.
 constexpr uint32_t MIN_FREE_FOR_TLS = 35000;
 constexpr uint32_t MIN_BLOCK_FOR_TLS = 20000;
 
@@ -59,11 +37,11 @@ void applyAuthHeaders(freeink::SecureHttpClient& http) {
 
 // True when free heap is too low to risk a TLS handshake.
 bool insufficientHeap() {
-  const uint32_t freeHeap = ESP.getFreeHeap();
-  const uint32_t maxAllocHeap = ESP.getMaxAllocHeap();
-  if (freeHeap < MIN_FREE_FOR_TLS || maxAllocHeap < MIN_BLOCK_FOR_TLS) {
-    LOG_ERR("KOSync", "Insufficient heap for TLS handshake: %u bytes free (need %u), %u max alloc (need %u)", freeHeap,
-            MIN_FREE_FOR_TLS, maxAllocHeap, MIN_BLOCK_FOR_TLS);
+  const auto heap = HalMemory::getDefaultHeap();
+  if (heap.freeBytes < MIN_FREE_FOR_TLS || heap.largestBlockBytes < MIN_BLOCK_FOR_TLS) {
+    LOG_ERR("KOSync",
+            "Insufficient allocatable heap for TLS handshake: %zu bytes free (need %u), %zu max alloc (need %u)",
+            heap.freeBytes, MIN_FREE_FOR_TLS, heap.largestBlockBytes, MIN_BLOCK_FOR_TLS);
     return true;
   }
   return false;
@@ -95,7 +73,10 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   LOG_DBG("KOSync", "Auth response: %d", httpCode);
 
   if (httpCode <= 0) return NETWORK_ERROR;
-  if (httpCode == 200) return OK;
+  // Any 2xx is success. The reference kosync server answers 200, but
+  // KOSync-compatible implementations differ (BookLore/grimmory is a Spring
+  // service and uses the idiomatic codes) — see issue #2876.
+  if (httpCode >= 200 && httpCode < 300) return OK;
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 }
@@ -132,7 +113,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
   LOG_DBG("KOSync", "Create user response: %d", httpCode);
 
   if (httpCode <= 0) return NETWORK_ERROR;
-  if (httpCode == 200 || httpCode == 201) return OK;
+  if (httpCode >= 200 && httpCode < 300) return OK;  // 2xx: created (see #2876)
   if (httpCode == 402) return USER_EXISTS;
   return SERVER_ERROR;
 }
@@ -166,7 +147,16 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
     return NETWORK_ERROR;
   }
 
-  if (httpCode == 200) {
+  // 204 = success with no stored progress for this document (Spring-style
+  // KOSync implementations; the reference server answers 200 with an empty
+  // object instead). Map it to the same graceful no-remote-progress path as
+  // 404 rather than falling through to SERVER_ERROR — see issue #2876.
+  if (httpCode == 204) {
+    http.end();
+    return NOT_FOUND;
+  }
+
+  if (httpCode >= 200 && httpCode < 300) {
     JsonDocument doc;
     const DeserializationError error = deserializeJson(doc, http.getString().c_str());
     http.end();
@@ -269,7 +259,11 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   LOG_DBG("KOSync", "Update progress response: %d", httpCode);
 
   if (httpCode <= 0) return NETWORK_ERROR;
-  if (httpCode == 200 || httpCode == 202) return OK;
+  // Any 2xx accepts the progress. The reference kosync server answers 200,
+  // but Spring-based KOSync implementations (BookLore/grimmory) answer a PUT
+  // with the idiomatic 201/204, which used to land in SERVER_ERROR and made
+  // every sync against them fail after a successful pull — issue #2876.
+  if (httpCode >= 200 && httpCode < 300) return OK;
   if (httpCode == 401) return AUTH_FAILED;
   return SERVER_ERROR;
 }

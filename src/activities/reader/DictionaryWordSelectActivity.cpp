@@ -17,6 +17,8 @@
 namespace {
 
 constexpr unsigned long POPUP_DURATION_MS = 1500;
+constexpr unsigned long WORD_REPEAT_START_MS = 500;
+constexpr unsigned long WORD_REPEAT_INTERVAL_MS = 500;
 
 // A token is selectable when it has an ASCII alphanumeric or a non-ASCII
 // codepoint outside U+2000-U+206F (dashes, bullets and other General
@@ -74,7 +76,7 @@ void DictionaryWordSelectActivity::extractWords() {
   for (const auto& element : page->elements) {
     if (element->getTag() != TAG_PageLine) continue;
     const auto* line = static_cast<const PageLine*>(element.get());
-    const auto& block = line->getBlock();
+    const auto* block = line->getBlock();
     if (!block || !block->valid()) continue;
 
     bool rowHasWords = false;
@@ -177,9 +179,10 @@ void DictionaryWordSelectActivity::performLookup() {
 
   if (found) {
     popup = Popup::None;
-    startActivityForResult(std::make_unique<DictionaryDefinitionActivity>(renderer, mappedInput, std::move(headword),
-                                                                          std::move(definition)),
-                           [this](const ActivityResult&) { requestUpdate(); });
+    startActivityForResult(
+        std::make_unique<DictionaryDefinitionActivity>(renderer, mappedInput, std::move(headword),
+                                                       std::move(definition), dict.definitionsAreHtml()),
+        [this](const ActivityResult&) { requestUpdate(); });
     return;
   }
   // Name the failure: a genuine miss is "Not found"; a word that WAS found but
@@ -235,13 +238,11 @@ void DictionaryWordSelectActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) confirmPressSeen = true;
-
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     finish();
     return;
   }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && confirmPressSeen && !words.empty()) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !words.empty()) {
     performLookup();
     return;
   }
@@ -270,11 +271,20 @@ void DictionaryWordSelectActivity::loop() {
   }
 
   const bool hasNextWord = selected + 1 < static_cast<int>(words.size());
-  if (mappedInput.wasPressed(MappedInputManager::Button::ScreenLeft) && selected > 0) {
+  const unsigned long now = millis();
+  const bool repeat =
+      mappedInput.getHeldTime() >= WORD_REPEAT_START_MS && now - lastHorizontalMoveTime >= WORD_REPEAT_INTERVAL_MS;
+  const bool moveLeft = mappedInput.wasPressed(MappedInputManager::Button::ScreenLeft) ||
+                        (repeat && mappedInput.isPressed(MappedInputManager::Button::ScreenLeft));
+  const bool moveRight = mappedInput.wasPressed(MappedInputManager::Button::ScreenRight) ||
+                         (repeat && mappedInput.isPressed(MappedInputManager::Button::ScreenRight));
+  if (moveLeft && selected > 0) {
     selected--;
+    lastHorizontalMoveTime = now;
     requestUpdate();
-  } else if (mappedInput.wasPressed(MappedInputManager::Button::ScreenRight) && hasNextWord) {
+  } else if (moveRight && hasNextWord) {
     selected++;
+    lastHorizontalMoveTime = now;
     requestUpdate();
   } else if (mappedInput.wasPressed(MappedInputManager::Button::ScreenUp)) {
     moveVertical(-1);

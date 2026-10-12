@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "EpdFontFamily.h"
 #include "SdFont.h"
 
@@ -144,4 +146,18 @@ class UnifiedFontFamily {
 
   // EpdFontData accessor for upstream compatibility (flash only; returns nullptr for SD fonts)
   const EpdFontData* getData(EpdFontStyle style = REGULAR) const { return getFlashData(style); }
+};
+
+// Owning slot in GfxRenderer's font map. A unique_ptr that also answers getGlyph(), because
+// FreeInkUI reads glyph metrics straight from GfxRenderer::getFontMap() entries
+// (`font->second.getGlyph(...)`) as if the map held families by value, as upstream's does.
+class UnifiedFontSlot : public std::unique_ptr<UnifiedFontFamily> {
+ public:
+  using std::unique_ptr<UnifiedFontFamily>::unique_ptr;
+  UnifiedFontSlot() = default;
+  explicit UnifiedFontSlot(std::unique_ptr<UnifiedFontFamily>&& family)
+      : std::unique_ptr<UnifiedFontFamily>(std::move(family)) {}
+  const EpdGlyph* getGlyph(uint32_t cp, EpdFontStyle style = REGULAR) const {
+    return get() ? get()->getGlyph(cp, style) : nullptr;
+  }
 };

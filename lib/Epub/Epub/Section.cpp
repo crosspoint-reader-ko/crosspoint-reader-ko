@@ -1,5 +1,7 @@
 #include "Section.h"
 
+#include <FontCacheManager.h>
+#include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -31,6 +33,27 @@ namespace {
 //      match. Keeps <br>-per-paragraph books (common CJK formatting) from
 //      re-adding container spacing at every paragraph.
 // v35: Persist a uint32_t visible-text start offset for every page.
+// v36: Ruby and CJK justification layout changes invalidate cached word positions.
+// v37: Footnote href records grew from 96 to 256 bytes.
+// v38: Focus Reading line breaking changed — a visible hyphen/dash inside a word is now a
+//      break opportunity, and hyphenation of a focus-split word considers the whole word
+//      instead of only its regular-weight suffix. Pages cached by older versions were laid
+//      out with the previous, more restrictive break set and no longer match.
+// v39: Image top margin is clamped so a full-viewport-height image cannot
+//      overflow the page bottom; older caches can hold placements that panels
+//      with no bottom inset refuse to draw.
+// v40: Ruby groups remain intact when a large text block is soft-flushed.
+// v41: Simple HTML table rows are laid out as positioned columns instead of
+//      flattened paragraphs with synthetic row/cell labels.
+// v42: Closing a block strips inherited vertical margins and padding.
+// v43: Paragraph base direction excludes direction changes from inline elements.
+// v44: Persist internal-link rectangles with each page for touch navigation.
+// v45: Internal EPUB links preserve CSS superscript/subscript positioning.
+// v46: Ordered lists number their items, list-style-type: none suppresses markers,
+//      and <ul>/<ol> containers contribute their own margins/padding to child insets.
+// v47: Word and character spacing in the header (cache validation); cached BlockStyle stores only character spacing.
+// v48: Hangul words wrap at spaces; with hyphenation on they may also split at a line end.
+//      Justification no longer stretches between syllables.
 // v37 (KO): header carries paragraphIndent and characterWrap; both are part of the cache key.
 //      Numbered past upstream's 36 so an upstream cache is never read with this layout.
 // v38 (KO): layoutCharacterWrap honours wordNoSpaceBefore, so glued CJK tokens are drawn flush.
@@ -38,7 +61,12 @@ namespace {
 // v40 (KO): run widths are measured by ink box again, so word spacing matches 1.3.0-ko density.
 // v41 (KO): the fill phases budget the post-add gap count again (1.2/1.3-ko's lineWordsVec.size()),
 //      so lines break where they did in 1.3.0-ko instead of one character later.
-constexpr uint8_t SECTION_FILE_VERSION = 42;
+// v42 (KO): character wrap keeps the tokens of a soft-flush-suppressed trailing line.
+// v49 (KO): upstream 1.6.5 merge. Header = upstream v48 (adds characterSpacing and
+//      wordSpacingPercent) + the KO paragraphIndent/characterWrap fields. Numbered past both
+//      upstream's 48 and KO's 42 so neither line's caches are read with this layout.
+//      Character-wrap layout now runs on upstream's WordStore arena and emits link spans.
+constexpr uint8_t SECTION_FILE_VERSION = 49;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
@@ -56,10 +84,11 @@ constexpr uint8_t SECTION_FILE_INCOMPLETE_VERSION = 0;
 // only fails (noisily, via the block-decode error path) when a page is loaded.
 // Derived so the pairing can't be forgotten: 0xFE for v28, 0xFD for v29, ...
 constexpr uint8_t SECTION_FILE_PARTIAL_VERSION = 0xFE - (SECTION_FILE_VERSION - 28);
-constexpr uint32_t HEADER_SIZE =
-    sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) +
-    sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) +
-    sizeof(bool) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t);
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
+                                 sizeof(uint8_t) + sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) +
+                                 sizeof(uint16_t) + sizeof(bool) + sizeof(bool) + sizeof(uint8_t) + sizeof(bool) +
+                                 sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
+                                 sizeof(uint32_t) + sizeof(int8_t) + sizeof(uint8_t);
 }  // namespace
 
 // Out-of-line so the unique_ptr<ChapterHtmlSlimParser> in BuildContext can be
@@ -107,7 +136,8 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
                                    sizeof(spec.paragraphAlignment) + sizeof(spec.characterWrap) +
                                    sizeof(spec.viewportWidth) + sizeof(spec.viewportHeight) + sizeof(pageCount) +
                                    sizeof(spec.hyphenationEnabled) + sizeof(spec.embeddedStyle) +
-                                   sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) + sizeof(uint32_t) +
+                                   sizeof(spec.imageRendering) + sizeof(spec.focusReadingEnabled) +
+                                   sizeof(spec.characterSpacing) + sizeof(spec.wordSpacingPercent) + sizeof(uint32_t) +
                                    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t),
                 "Header size mismatch");
   // Written as the incomplete sentinel; finalizeBuild() patches it to
@@ -125,6 +155,8 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
   serialization::writePod(file, spec.embeddedStyle);
   serialization::writePod(file, spec.imageRendering);
   serialization::writePod(file, spec.focusReadingEnabled);
+  serialization::writePod(file, spec.characterSpacing);
+  serialization::writePod(file, spec.wordSpacingPercent);
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0, patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
@@ -163,6 +195,8 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     bool fileEmbeddedStyle;
     uint8_t fileImageRendering;
     bool fileFocusReadingEnabled;
+    int8_t fileCharacterSpacing;
+    uint8_t fileWordSpacingPercent;
     serialization::readPod(file, fileFontId);
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileExtraParagraphSpacing);
@@ -175,13 +209,16 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     serialization::readPod(file, fileEmbeddedStyle);
     serialization::readPod(file, fileImageRendering);
     serialization::readPod(file, fileFocusReadingEnabled);
+    serialization::readPod(file, fileCharacterSpacing);
+    serialization::readPod(file, fileWordSpacingPercent);
 
     if (spec.fontId != fileFontId || spec.lineCompression != fileLineCompression ||
         spec.extraParagraphSpacing != fileExtraParagraphSpacing || spec.paragraphIndent != fileParagraphIndent ||
         spec.paragraphAlignment != fileParagraphAlignment || spec.characterWrap != fileCharacterWrap ||
         spec.viewportWidth != fileViewportWidth || spec.viewportHeight != fileViewportHeight ||
         spec.hyphenationEnabled != fileHyphenationEnabled || spec.embeddedStyle != fileEmbeddedStyle ||
-        spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled) {
+        spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled ||
+        spec.characterSpacing != fileCharacterSpacing || spec.wordSpacingPercent != fileWordSpacingPercent) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();
@@ -258,6 +295,10 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   if (build_) {
     LOG_ERR("SCT", "startBuild called while a build is already active");
     return false;
+  }
+  // Reclaim rebuildable font caches before CSS and layout allocations.
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
   }
   buildComplete_ = false;
   builtPageCount_ = 0;
@@ -376,8 +417,19 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
 
   if (spec.embeddedStyle) {
     ctx->cssParser = epub->getCssParser();
-    if (ctx->cssParser && !ctx->cssParser->loadFromCache()) {
-      LOG_ERR("SCT", "Failed to load CSS from cache");
+    if (ctx->cssParser) {
+      const CssParser::CacheLoadResult cacheResult = ctx->cssParser->loadFromCache();
+      if (cacheResult == CssParser::CacheLoadResult::LowMemory) {
+        LOG_ERR("SCT", "Insufficient heap to hydrate CSS; section build deferred");
+        ctx->cssParser->clear();
+        file.close();
+        Storage.remove(binTmpPath().c_str());
+        if (!ctx->reusedHtml) Storage.remove(ctx->tmpHtmlPath.c_str());
+        return false;
+      }
+      if (cacheResult == CssParser::CacheLoadResult::Invalid) {
+        LOG_ERR("SCT", "Failed to load CSS from cache");
+      }
     }
   }
 
@@ -419,6 +471,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
     return false;
   }
 
+  ctx->parser->setTextSpacing(spec.characterSpacing, spec.wordSpacingPercent);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   build_ = std::move(ctx);
 
@@ -614,7 +667,13 @@ bool Section::commitBuildFile(const uint8_t version, const uint32_t bytesConsume
 
 bool Section::finalizeBuild() {
   // Flush the trailing page (emits the last page via the completePageFn into the LUT).
-  build_->parser->finishParse();
+  // A false return means layout dropped content (OOM); committing would persist a
+  // section cache with holes in the text, so abandon the build instead.
+  if (!build_->parser->finishParse()) {
+    LOG_ERR("SCT", "Parse finalize failed; abandoning section build");
+    abandonBuild();
+    return false;
+  }
 
   if (!build_->reusedHtml) {
     // Parse succeeded: promote the freshly unzipped HTML to the persistent cache so future

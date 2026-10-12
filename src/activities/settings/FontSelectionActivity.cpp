@@ -2,9 +2,10 @@
 
 #include <GfxRenderer.h>
 #include <HalStorage.h>
-#include <HardwareSerial.h>
+#include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -13,9 +14,19 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace fui = freeink::ui;
+
 namespace {
 constexpr const char* DEFAULT_FONT_NAME = "KoPub 바탕 (기본)";
 constexpr const char* CACHE_DIR = "/.crosspoint/cache";
+
+// Index of `path` in `fontFiles`, or 0 (the built-in default entry) when it is not listed.
+int indexOfFont(const std::vector<std::string>& fontFiles, const char* path) {
+  if (fontFiles.size() < 2) return 0;
+  const auto it =
+      std::find_if(fontFiles.begin() + 1, fontFiles.end(), [path](const std::string& file) { return file == path; });
+  return it == fontFiles.end() ? 0 : static_cast<int>(it - fontFiles.begin());
+}
 
 // Recursively delete a directory and its contents
 void deleteDirectory(const char* path) {
@@ -92,11 +103,6 @@ void invalidateReaderCaches() {
 }
 }  // namespace
 
-void FontSelectionActivity::taskTrampoline(void* param) {
-  auto* self = static_cast<FontSelectionActivity*>(param);
-  self->displayTaskLoop();
-}
-
 void FontSelectionActivity::scanFontsInDirectory(const char* dirPath, bool recurseIntoSubdirs) {
   HalFile dir = Storage.open(dirPath);
   if (!dir) {
@@ -163,83 +169,41 @@ void FontSelectionActivity::loadFontList() {
   scanFontsInDirectory(HIDDEN_FONTS_DIR);
 
   LOG_DBG("FNT", "Total fonts found: %zu (including default)", fontFiles.size());
+}
 
-  // Find currently selected font index
-  selectedIndex = 0;  // Default
+int FontSelectionActivity::currentFontIndex() const {
   const bool hasCurrent = isSystemTarget() ? SETTINGS.hasSystemFont() : SETTINGS.hasCustomFont();
-  const char* currentPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
-  if (hasCurrent) {
-    for (size_t i = 1; i < fontFiles.size(); i++) {
-      if (fontFiles[i] == currentPath) {
-        selectedIndex = static_cast<int>(i);
-        break;
-      }
-    }
-  }
+  if (!hasCurrent) return 0;
+  return indexOfFont(fontFiles, isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath);
 }
 
 void FontSelectionActivity::onEnter() {
-  ActivityWithSubactivity::onEnter();
-
-  displayMutex = xSemaphoreCreateMutex();
-
-  // Load font list from SD card
   loadFontList();
 
-  updateRequired = true;
+  // Built once: activateIndex() leaves the screen, so the "Selected" marker cannot go stale.
+  const int current = currentFontIndex();
+  rowItems.assign(fontNames.size(), fui::ListItem{});
+  for (size_t i = 0; i < fontNames.size(); i++) {
+    rowItems[i].label = fontNames[i].c_str();
+    rowItems[i].actionValue = static_cast<int16_t>(i);
+    if (static_cast<int>(i) == current) rowItems[i].value = tr(STR_SELECTED);
+  }
 
-  xTaskCreate(&FontSelectionActivity::taskTrampoline, "FontSelectionTask",
-              4096,               // Stack size
-              this,               // Parameters
-              1,                  // Priority
-              &displayTaskHandle  // Task handle
-  );
+  UiListActivity::onEnter();
+  // Open on the current font; the first build pulls the viewport to it.
+  nav.selected = current;
 }
 
-void FontSelectionActivity::onExit() {
-  ActivityWithSubactivity::onExit();
+const char* FontSelectionActivity::headerTitle() const { return isSystemTarget() ? tr(STR_SYSTEM_FONT) : tr(STR_FONT); }
 
-  xSemaphoreTake(displayMutex, portMAX_DELAY);
-  if (displayTaskHandle) {
-    vTaskDelete(displayTaskHandle);
-    displayTaskHandle = nullptr;
-  }
-  vSemaphoreDelete(displayMutex);
-  displayMutex = nullptr;
-}
+void FontSelectionActivity::activateIndex(const int index) {
+  if (index < 0 || index >= static_cast<int>(fontFiles.size())) return;
+  // The activated row leaves this screen; a lingering flash would gray an
+  // unrelated element on the next render.
+  app.clearTapFlash();
+  nav.selected = index;
 
-void FontSelectionActivity::loop() {
-  if (subActivity) {
-    subActivity->loop();
-    return;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    finish();
-    return;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    handleSelection();
-    return;
-  }
-
-  const int itemCount = static_cast<int>(fontNames.size());
-  if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    selectedIndex = (selectedIndex + itemCount - 1) % itemCount;
-    updateRequired = true;
-  } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-             mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    selectedIndex = (selectedIndex + 1) % itemCount;
-    updateRequired = true;
-  }
-}
-
-void FontSelectionActivity::handleSelection() {
-  xSemaphoreTake(displayMutex, portMAX_DELAY);
-
-  // Show loading screen
+  RenderLock lock(*this);
   renderer.clearScreen();
   renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2 - 10, "글꼴 적용 중...");
   renderer.displayBuffer();
@@ -247,17 +211,16 @@ void FontSelectionActivity::handleSelection() {
   // Update the target font path in settings
   char* destPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
   const size_t destSize = isSystemTarget() ? sizeof(SETTINGS.systemFontPath) : sizeof(SETTINGS.customFontPath);
-  if (selectedIndex == 0) {
+  if (index == 0) {
     // Default selected - clear the path
     destPath[0] = '\0';
   } else {
-    strncpy(destPath, fontFiles[selectedIndex].c_str(), destSize - 1);
+    strncpy(destPath, fontFiles[index].c_str(), destSize - 1);
     destPath[destSize - 1] = '\0';
   }
 
   SETTINGS.saveToFile();
-  LOG_DBG("FNT", "Font selected (%s): %s", isSystemTarget() ? "system" : "reader",
-          selectedIndex == 0 ? "default" : destPath);
+  LOG_DBG("FNT", "Font selected (%s): %s", isSystemTarget() ? "system" : "reader", index == 0 ? "default" : destPath);
 
   if (isSystemTarget()) {
     // Reload UI system font dynamically (no reboot needed). UI-only, so reader caches
@@ -270,93 +233,24 @@ void FontSelectionActivity::handleSelection() {
     invalidateReaderCaches();
   }
 
-  xSemaphoreGive(displayMutex);
-
-  // Return to settings
   finish();
 }
 
-void FontSelectionActivity::displayTaskLoop() {
-  while (true) {
-    if (updateRequired && !subActivity) {
-      updateRequired = false;
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      render();
-      xSemaphoreGive(displayMutex);
-    }
-    vTaskDelay(10 / portTICK_PERIOD_MS);
-  }
-}
+void FontSelectionActivity::buildScreen(UiScreen& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
+  // Content: the safe area minus the header band GUI.drawHeader paints.
+  screen.setContentMarginFromScreen(fui::Insets{
+      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
+      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
+      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-void FontSelectionActivity::render() {
-  renderer.clearScreen();
-
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
-  // Draw header
-  renderer.drawCenteredText(UI_12_FONT_ID, 15, isSystemTarget() ? "시스템 글꼴 선택" : "글꼴 선택", true,
-                            EpdFontFamily::BOLD);
-
-  // Calculate visible items (with scrolling if needed)
-  constexpr int lineHeight = 30;
-  constexpr int startY = 60;
-  const int maxVisibleItems = (pageHeight - startY - 50) / lineHeight;
-  const int itemCount = static_cast<int>(fontNames.size());
-
-  // Calculate scroll offset to keep selected item visible
-  int scrollOffset = 0;
-  if (itemCount > maxVisibleItems) {
-    if (selectedIndex >= maxVisibleItems) {
-      scrollOffset = selectedIndex - maxVisibleItems + 1;
-    }
-  }
-
-  // Determine current selection (for checkmark comparison)
-  int currentSelectedIndex = 0;  // Default
-  const bool hasCurrent = isSystemTarget() ? SETTINGS.hasSystemFont() : SETTINGS.hasCustomFont();
-  const char* currentPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
-  if (hasCurrent) {
-    for (size_t i = 1; i < fontFiles.size(); i++) {
-      if (fontFiles[i] == currentPath) {
-        currentSelectedIndex = static_cast<int>(i);
-        break;
-      }
-    }
-  }
-
-  // Draw font list
-  for (int i = 0; i < maxVisibleItems && (i + scrollOffset) < itemCount; i++) {
-    const int itemIndex = i + scrollOffset;
-    const int itemY = startY + i * lineHeight;
-    const bool isHighlighted = (itemIndex == selectedIndex);
-    const bool isCurrentFont = (itemIndex == currentSelectedIndex);
-
-    // Draw selection highlight
-    if (isHighlighted) {
-      renderer.fillRect(0, itemY - 2, pageWidth - 1, lineHeight);
-    }
-
-    // Draw checkmark for currently active font (using asterisk - available in Pretendard)
-    if (isCurrentFont) {
-      renderer.drawText(UI_10_FONT_ID, 10, itemY, "*", !isHighlighted);
-    }
-
-    // Draw font name
-    renderer.drawText(UI_10_FONT_ID, 35, itemY, fontNames[itemIndex].c_str(), !isHighlighted);
-  }
-
-  // Draw scroll indicators if needed
-  if (scrollOffset > 0) {
-    renderer.drawCenteredText(UI_10_FONT_ID, startY - 15, "...", true);
-  }
-  if (scrollOffset + maxVisibleItems < itemCount) {
-    renderer.drawCenteredText(UI_10_FONT_ID, startY + maxVisibleItems * lineHeight, "...", true);
-  }
-
-  // Draw help text
-  const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "", "");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
+  fui::ListProps props;
+  props.items = rowItems.data();
+  props.count = static_cast<uint16_t>(rowItems.size());
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  syncListViewport(screen, props);
+  screen.list(props);
 }

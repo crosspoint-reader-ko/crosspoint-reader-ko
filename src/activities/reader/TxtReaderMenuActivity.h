@@ -4,10 +4,10 @@
 #include <string>
 #include <vector>
 
-#include "../Activity.h"
-#include "util/ButtonNavigator.h"
+#include "activities/UiListActivity.h"
+#include "components/OptionPopup.h"
 
-class TxtReaderMenuActivity final : public Activity {
+class TxtReaderMenuActivity final : public UiListActivity {
  public:
   // Reader-side menu actions for TXT files. A subset of the EPUB menu — TXT
   // has no chapters, footnotes, or sync targets, so we expose only the
@@ -28,11 +28,9 @@ class TxtReaderMenuActivity final : public Activity {
                                  uint8_t currentPageTurnOption, uint8_t currentPageJumpOption,
                                  uint32_t totalReadingSeconds);
 
-  void onEnter() override;
-  void onExit() override;
-  void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  bool handleHomeGesture() override;
 
  private:
   struct MenuItem {
@@ -40,13 +38,26 @@ class TxtReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems();
+  static constexpr size_t MENU_ITEM_COUNT = 8;
+  static const MenuItem MENU_ITEMS[MENU_ITEM_COUNT];
+  // Labels/actionValue are set once in the constructor; buildScreen() only
+  // refreshes the rows whose values reflect live state.
+  freeink::ui::ListItem menuRowItems[MENU_ITEM_COUNT]{};
 
-  const std::vector<MenuItem> menuItems;
+  int listCount() const override { return static_cast<int>(MENU_ITEM_COUNT); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  // Popup input runs before any button or touch handling.
+  bool handleCustomInput() override;
+  // Back closes on RELEASE and Confirm activates on RELEASE; row navigation
+  // falls through to the base handler.
+  bool handleButtons() override;
+  // Header via GUI.drawHeader inside the safe area for the battery indicator.
+  void drawChrome() override;
 
-  int selectedIndex = 0;
+  void closeCancelled();
 
-  ButtonNavigator buttonNavigator;
+  OptionPopup optionPopup;
   std::string title = "Reader Menu";
   uint8_t pendingOrientation = 0;
   uint8_t selectedPageTurnOption = 0;

@@ -9,14 +9,15 @@
 #include "MappedInputManager.h"
 #include "SettingsList.h"
 #include "components/UITheme.h"
-#include "fontIds.h"
+
+namespace fui = freeink::ui;
 
 ReaderOptionsActivity::ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool forTxtReader)
-    : Activity("ReaderOptions", renderer, mappedInput), forTxtReader(forTxtReader) {}
+    : UiListActivity("ReaderOptions", renderer, mappedInput), forTxtReader(forTxtReader) {}
 
 std::vector<SettingInfo> ReaderOptionsActivity::buildSettings(bool forTxtReader) {
   std::vector<SettingInfo> result;
-  result.reserve(20);
+  result.reserve(32);
 
   for (const auto& s : getSettingsList()) {
     if (s.type != SettingType::TOGGLE && s.type != SettingType::ENUM && s.type != SettingType::VALUE) {
@@ -25,9 +26,8 @@ std::vector<SettingInfo> ReaderOptionsActivity::buildSettings(bool forTxtReader)
     if (s.valuePtr == nullptr) {
       continue;
     }
-    // Reader menu already exposes orientation as an inline rotate cycle, so
-    // omit it here to avoid duplicate exposure with subtly different UX
-    // (cycle-on-confirm vs. enum-cycle).
+    // The reader menu already exposes orientation, so omit it here to avoid
+    // duplicate exposure with subtly different UX.
     if (s.nameId == StrId::STR_ORIENTATION) {
       continue;
     }
@@ -53,119 +53,93 @@ std::vector<SettingInfo> ReaderOptionsActivity::buildSettings(bool forTxtReader)
 }
 
 void ReaderOptionsActivity::onEnter() {
-  Activity::onEnter();
   settings = buildSettings(forTxtReader);
-  settingsCount = static_cast<int>(settings.size());
-  selectedSettingIndex = 0;
-  requestUpdate();
+  rowItems.assign(settings.size(), fui::ListItem{});
+  valueTexts.assign(settings.size(), std::string());
+  for (size_t i = 0; i < settings.size(); i++) {
+    rowItems[i].label = I18N.get(settings[i].nameId);
+    rowItems[i].actionValue = static_cast<int16_t>(i);
+    rowItems[i].toggle = settings[i].type == SettingType::TOGGLE;
+  }
+  UiListActivity::onEnter();
 }
 
 void ReaderOptionsActivity::onExit() {
-  // Persist any changes before returning to the reader. The reader will
-  // detect render-affecting changes on its next render() pass and invalidate
-  // its section cache as needed.
+  // Persist any changes before returning to the reader. The reader detects
+  // render-affecting changes when its menu closes and re-lays out as needed.
   SETTINGS.saveToFile();
-  Activity::onExit();
+  UiListActivity::onExit();
 }
 
-void ReaderOptionsActivity::loop() {
-  // Back uses wasReleased so we consume the release edge here — otherwise
-  // EpubReaderActivity::loop() would see the same release event and trigger
-  // its short-press "go home" handler when we return.
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    finish();
-    return;
-  }
-
-  // Confirm uses wasPressed (matches SettingsActivity / FontSelectionActivity).
-  // If we used wasReleased here, the release edge after a sub-activity (e.g.
-  // FontSelection) commits would fire toggleCurrentSetting again and relaunch
-  // the sub-activity — an infinite loop on the font row.
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    toggleCurrentSetting();
-    requestUpdate();
-    return;
-  }
-
-  buttonNavigator.onNextRelease([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount);
-    requestUpdate();
-  });
-  buttonNavigator.onPreviousRelease([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount);
-    requestUpdate();
-  });
-  buttonNavigator.onNextContinuous([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount);
-    requestUpdate();
-  });
-  buttonNavigator.onPreviousContinuous([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount);
-    requestUpdate();
-  });
+void ReaderOptionsActivity::activateIndex(const int index) {
+  nav.selected = index;
+  toggleSetting(index);
+  requestUpdate();
 }
 
-void ReaderOptionsActivity::toggleCurrentSetting() {
-  if (selectedSettingIndex < 0 || selectedSettingIndex >= settingsCount) {
+void ReaderOptionsActivity::toggleSetting(const int index) {
+  if (index < 0 || index >= static_cast<int>(settings.size())) {
     return;
   }
-  const auto& setting = settings[selectedSettingIndex];
+  const auto& setting = settings[index];
+  if (setting.valuePtr == nullptr) return;
 
-  // Mirrors SettingsActivity::toggleCurrentSetting(): the toggle/cycle
-  // semantics for shared SettingInfo entries must stay identical between the
-  // two screens, otherwise users would see different behavior depending on
-  // where they touched the same setting.
-  if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+  // Mirrors SettingsActivity's toggle/cycle semantics: the shared SettingInfo
+  // entries must behave the same on both screens.
+  if (setting.type == SettingType::TOGGLE) {
     const bool currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = !currentValue;
-  } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+  } else if (setting.type == SettingType::ENUM) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
-    SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
-  } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
+    const size_t count = setting.enumLabels().size();
+    if (count == 0) return;
+    SETTINGS.*(setting.valuePtr) = static_cast<uint8_t>((currentValue + 1) % count);
+  } else if (setting.type == SettingType::VALUE) {
+    // int, not int8_t: VALUE settings such as wordSpacing (50..200 %) exceed the int8_t range.
+    const int currentValue = SETTINGS.*(setting.valuePtr);
     if (currentValue + setting.valueRange.step > setting.valueRange.max) {
       SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
     } else {
-      SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
+      SETTINGS.*(setting.valuePtr) = static_cast<uint8_t>(currentValue + setting.valueRange.step);
     }
   }
 }
 
-void ReaderOptionsActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+void ReaderOptionsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  // Content below the GUI.drawHeader band, above the button hints.
+  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_READER_OPTIONS));
+  // Labels were set in onEnter(); only the live values are refreshed here.
+  for (size_t i = 0; i < settings.size(); i++) {
+    const auto& setting = settings[i];
+    auto& item = rowItems[i];
+    item.value = nullptr;
+    if (setting.type == SettingType::TOGGLE) {
+      item.toggleChecked = SETTINGS.*(setting.valuePtr) != 0;
+    } else if (setting.type == SettingType::ENUM) {
+      const uint8_t value = SETTINGS.*(setting.valuePtr);
+      const auto labels = setting.enumLabels();
+      if (value < labels.size()) item.value = I18N.get(labels[value]);
+    } else if (setting.type == SettingType::VALUE) {
+      valueTexts[i] = std::to_string(SETTINGS.*(setting.valuePtr));
+      if (setting.nameId == StrId::STR_WORD_SPACING) valueTexts[i] += "%";
+      item.value = valueTexts[i].c_str();
+    }
+  }
 
-  const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
+  fui::ListProps props;
+  props.items = rowItems.data();
+  props.count = static_cast<uint16_t>(rowItems.size());
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  syncListViewport(screen, props);
+  screen.list(props);
+}
 
-  const auto& list = settings;
-  GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, settingsCount, selectedSettingIndex,
-      [&list](int index) { return std::string(I18N.get(list[index].nameId)); }, nullptr, nullptr,
-      [&list](int i) {
-        const auto& setting = list[i];
-        std::string valueText;
-        if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-          const bool value = SETTINGS.*(setting.valuePtr);
-          valueText = value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-        } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-          const uint8_t value = SETTINGS.*(setting.valuePtr);
-          if (value < setting.enumValues.size()) {
-            valueText = I18N.get(setting.enumValues[value]);
-          }
-        } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-        }
-        return valueText;
-      },
-      true);
-
+void ReaderOptionsActivity::drawFooter() {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
 }

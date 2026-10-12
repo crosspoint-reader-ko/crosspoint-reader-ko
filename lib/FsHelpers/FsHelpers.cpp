@@ -1,7 +1,10 @@
 #include "FsHelpers.h"
 
+#include <Utf8.h>
+
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <string_view>
 #include <vector>
@@ -206,6 +209,10 @@ std::string extractFolderPath(const std::string& filePath) {
   return filePath.substr(0, lastSlash);
 }
 
+bool isSafePathComponent(std::string_view name) {
+  return !name.empty() && name.find_first_of("/\\") == std::string_view::npos && name != "." && name != "..";
+}
+
 void sanitizePathComponentForFat32(const char* input, char* output, size_t maxLen) {
   if (maxLen == 0) {
     return;
@@ -221,6 +228,8 @@ void sanitizePathComponentForFat32(const char* input, char* output, size_t maxLe
       output[i] = c;
     }
   }
+  // If the last character was cut in half, drop its leftover bytes.
+  i = static_cast<size_t>(utf8SafeTruncateBuffer(output, static_cast<int>(i)));
   output[i] = '\0';
 }
 

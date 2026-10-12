@@ -1,18 +1,15 @@
 #pragma once
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 #include <string>
 #include <vector>
 
-#include "activities/ActivityWithSubactivity.h"
+#include "activities/UiListActivity.h"
 
 /**
- * Activity for selecting a custom font from /.crosspoint/fonts folder.
- * Lists .bin font files and allows the user to select one.
+ * Picks an SD-card .epdfont for the reader body or the UI fallback slot.
+ * Rows come from /.crosspoint/fonts, /fonts and /.fonts; row 0 is the built-in default.
  */
-class FontSelectionActivity final : public ActivityWithSubactivity {
+class FontSelectionActivity final : public UiListActivity {
  public:
   // Which font slot this picker configures:
   //   Reader  -> SETTINGS.customFontPath (EPUB body font; default KoPub Batang)
@@ -20,29 +17,27 @@ class FontSelectionActivity final : public ActivityWithSubactivity {
   enum class Target { Reader, System };
 
   explicit FontSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, Target target = Target::Reader)
-      : ActivityWithSubactivity("FontSelection", renderer, mappedInput), target_(target) {}
+      : UiListActivity("FontSelection", renderer, mappedInput), target_(target) {}
 
   void onEnter() override;
-  void onExit() override;
-  void loop() override;
 
  private:
-  TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t displayMutex = nullptr;
-  bool updateRequired = false;
+  int listCount() const override { return static_cast<int>(rowItems.size()); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  const char* headerTitle() const override;
 
   Target target_ = Target::Reader;
-  int selectedIndex = 0;
   std::vector<std::string> fontFiles;  // List of font file paths
   std::vector<std::string> fontNames;  // Display names (without path and extension)
+  // Row storage, built once in onEnter(); labels point into fontNames.
+  std::vector<freeink::ui::ListItem> rowItems;
 
   bool isSystemTarget() const { return target_ == Target::System; }
 
-  static void taskTrampoline(void* param);
-  [[noreturn]] void displayTaskLoop();
-  void render();
+  // Index of the font currently saved for this slot (0 = built-in default).
+  int currentFontIndex() const;
   void loadFontList();
-  void handleSelection();
 
   static constexpr const char* FONTS_DIR = "/.crosspoint/fonts";
   static constexpr const char* ROOT_FONTS_DIR = "/fonts";
