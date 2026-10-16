@@ -174,7 +174,9 @@ void BaseTheme::drawProgressBar(const GfxRenderer& renderer, Rect rect, const si
 // theme's drawButtonHints() gets the same behaviour.
 void BaseTheme::drawHintLabel(const GfxRenderer& renderer, const int fontId, const char* label, const int x,
                               const int boxWidth, const int boxTop, const int boxHeight, const int singleLineYOffset) {
-  constexpr int textPadding = 4;  // keeps a wrapped label off the button's border
+  // Keeps the label off the 1px border. Lyra's 80px hint must hold a 4-syllable
+  // Hangul label with a space ("이어 읽기", ~72px) on one line.
+  constexpr int textPadding = 2;
   const int maxTextWidth = boxWidth - (textPadding * 2);
 
   const int textWidth = renderer.getTextWidth(fontId, label);
