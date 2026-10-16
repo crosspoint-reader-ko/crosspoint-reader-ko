@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <BlePageTurnerJson.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -113,6 +114,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) {
     doc["keyboardLayouts"] = keyboardLayouts;
   }
+
+  bleturner::writeJson(ble, doc);
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -263,6 +266,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   // Absent means unconfigured, which is the default.
   if (doc["keyboardLayouts"].is<uint16_t>()) {
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
+  }
+
+  if (!bleturner::readJson(ble, doc)) {
+    needsResave = true;
   }
 
   if (needsResave) {

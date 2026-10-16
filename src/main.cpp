@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <BlePageTurner.h>
 #include <BoardConfig.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
@@ -21,6 +22,8 @@
 #include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 
+#include <atomic>
+#include <cstdarg>
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -316,6 +319,76 @@ bool handleX4ProFrontlightDoubleClick() {
   return true;
 }
 
+// Bluetooth page turner (lib/BlePageTurner): what the module may ask of this firmware. The module
+// owns the radio; loop() tells it what is on screen, and the screen changes and sleep ask it to stop.
+namespace pageturner {
+std::atomic<bool> holdsCpu{false};
+
+bleturner::Heap heap() {
+  const auto h = HalMemory::getInternalHeap();
+  return {h.freeBytes, h.largestBlockBytes};
+}
+
+// Runs on the radio's start task. Only TRIES the render lock: the render task can hold it through a
+// chapter build that is waiting for this very radio.
+bool releaseCaches() {
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return false;
+  fontCacheManager.releaseSdFontCaches();
+  return true;
+}
+
+bool deliver(const bleturner::Action action) {
+  switch (action) {
+    case bleturner::Action::NextPage:
+      return activityManager.remoteTurn(true, false);
+    case bleturner::Action::PrevPage:
+      return activityManager.remoteTurn(false, false);
+    case bleturner::Action::NextChapter:
+      return activityManager.remoteTurn(true, true);
+    case bleturner::Action::PrevChapter:
+      return activityManager.remoteTurn(false, true);
+    case bleturner::Action::Confirm:
+      return activityManager.remoteClick(RemoteButton::Confirm);
+    case bleturner::Action::Back:
+      return activityManager.remoteClick(RemoteButton::Back);
+    case bleturner::Action::ReaderMenu:
+      return activityManager.remoteShortcut(true);
+    case bleturner::Action::SaveQuote:
+      return activityManager.remoteShortcut(false);
+    case bleturner::Action::None:
+      return false;
+  }
+  return false;
+}
+
+bool yieldForRadio() { return true; }        // the reader keeps no parser alive between pages
+bool fileTransferActive() { return false; }  // file transfer is a screen of its own: the radio is off there
+void restartIntoBook() { silentRestartToReader(); }
+
+// The radio needs a steady clock while it is up or changing state.
+void holdFullSpeed(const bool hold) {
+  holdsCpu.store(hold);
+  if (hold) powerManager.setPowerSaving(false);
+}
+
+void log(const bool error, const char* format, va_list args) {
+#ifdef ENABLE_SERIAL_LOG
+  if (!error && LOG_LEVEL < 1) return;
+  char line[160];
+  vsnprintf(line, sizeof(line), format, args);
+  logPrintf(error ? "ERR" : "INF", "BLE", "%s", line);
+#else
+  (void)error;
+  (void)format;
+  (void)args;
+#endif
+}
+
+const bleturner::Host host{heap,          releaseCaches, deliver, yieldForRadio, fileTransferActive, restartIntoBook,
+                           holdFullSpeed, log,           nullptr};
+}  // namespace pageturner
+
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
@@ -344,6 +417,10 @@ void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
+  // Stop Bluetooth before sleep; the radio must not outlive the screen.
+  deepSleepInProgress = true;
+  if (!bleturner::beforeSleep(2000)) LOG_ERR("SLP", "Bluetooth did not stop before sleep");
+
   const bool isQuickResumeSleep =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
       (fromTimeout &&
@@ -354,9 +431,6 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   APP_STATE.saveToFile();
 
-  // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
-  // a WiFi activity would otherwise silentRestart() here and reboot instead.
-  deepSleepInProgress = true;
   activityManager.goToSleep(fromTimeout);
 
   if (isQuickResumeSleep) {
@@ -535,6 +609,7 @@ void setup() {
   OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
+  bleturner::begin(pageturner::host, SETTINGS.ble);
 
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
@@ -685,6 +760,21 @@ void loop() {
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
   mappedInputManager.update();
 
+  // Bluetooth page turner, before the USB drive's early return: a card handed to USB stops the radio
+  // before anything else.
+  bleturner::Scene scene{};
+  // Home counts only for builds whose radio may start there (the S3 profile, RadioPolicy.h).
+  const bool homeShown = activityManager.isForegroundHomeShown();
+  const bool remoteContext = activityManager.isRemoteReaderContext();
+  scene.where = remoteContext ? bleturner::Where::Reader
+                : homeShown   ? bleturner::Where::Home
+                              : bleturner::Where::Elsewhere;
+  scene.visit = activityManager.visit();
+  scene.pageShown = homeShown || remoteContext;
+  scene.storageBusy = activityManager.requiresExclusiveStorageLoop();
+  scene.wifiOn = WiFi.getMode() != WIFI_MODE_NULL;
+  const bool remoteActed = bleturner::tick(scene);
+
   if (activityManager.requiresExclusiveStorageLoop()) {
     // USB Drive handed the raw SD card to the host. Do not run screenshots,
     // sleep, shortcuts, or normal navigation while its filesystem is detached.
@@ -738,7 +828,7 @@ void loop() {
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
-      activityManager.preventAutoSleep()) {
+      remoteActed || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
@@ -914,7 +1004,7 @@ void loop() {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
   } else {
-    if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
+    if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS && !pageturner::holdsCpu.load()) {
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
       // Sleep in short slices and wake the poll as soon as a button contact closes.

@@ -16,6 +16,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
     FOOTNOTES,
     NIGHT_MODE,
     FRONTLIGHT,
+    BLUETOOTH,
     GO_TO_PERCENT,
     AUTO_PAGE_TURN,
     ROTATE_SCREEN,
@@ -36,6 +37,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
     StrId labelId;
   };
 
+  static void toggleBluetooth();
   static void buildMenuItems(std::vector<MenuItem>& items, bool hasFootnotes, bool hasBookmarks);
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -45,15 +47,16 @@ class EpubReaderMenuActivity final : public UiListActivity {
 
   void render(RenderLock&&) override;
   bool handleHomeGesture() override;
+  bool acceptsRemoteInput() const override { return routingReady(); }
 
  private:
   // Row storage: menuItems is at most MAX_MENU_ITEMS, so a
   // fixed-capacity array avoids any heap allocation for the row list. Labels
   // are set once in the constructor (buildMenuRowItems()); buildScreen()
   // only refreshes rows whose values reflect live state.
-  // 17 = every row buildMenuItems() can emit, including the Korean Reader Options and
-  // Reset Reading Timer rows.
-  static constexpr size_t MAX_MENU_ITEMS = 17;
+  // 18 = every row buildMenuItems() can emit, including the Korean Reader Options,
+  // Reset Reading Timer and Bluetooth Page Turner rows.
+  static constexpr size_t MAX_MENU_ITEMS = 18;
   freeink::ui::ListItem menuRowItems[MAX_MENU_ITEMS]{};
   void buildMenuRowItems();
 

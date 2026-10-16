@@ -13,6 +13,7 @@
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "EpubReaderMenuActivity.h"
+#include "LinkNoteTitle.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
@@ -128,6 +129,15 @@ class EpubReaderActivity final : public ReaderActivity {
   bool backgroundBuildWanted() const;
   bool buildTickHeapGate();
   bool buildHeapPaused = false;
+  // Bluetooth page turner: every chapter build stops the radio until the chapter is built and its
+  // page is shown. False: the radio still holds or is taking the heap, and the build must not run.
+  std::atomic<bool> radioReleasedForBuild{false};
+  bool makeRoomForChapterBuild();
+  static constexpr uint32_t BUILD_ROOM_WAIT_MS = 5000;
+  static constexpr uint32_t BUILD_ROOM_STEP_MS = 50;
+  bool inputOverPage() const override { return overlay != Overlay::None || ReaderActivity::inputOverPage(); }
+  // "Connecting Bluetooth…" or "Bluetooth failed" in place of the status bar title.
+  mutable LinkNoteTitle linkNoteTitle;
   static constexpr size_t RENDER_MIN_FREE_HEAP = 24 * 1024;
   static constexpr int BUILD_WINDOW_AHEAD = 5;
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
@@ -211,6 +221,7 @@ class EpubReaderActivity final : public ReaderActivity {
 
   bool pageTurn(bool isForward) override;
   bool skipPages(int amount) override;
+  bool remoteShortcut(bool readerMenu) override;
   bool isAtEndOfBook() const override;
   void onReturnFromEndOfBook() override;
 
