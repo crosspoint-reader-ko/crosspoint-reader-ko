@@ -10,7 +10,7 @@
 
 // Korean EPUB reader font (Pretendard 14pt). SHA-256 of pretendard_14_regular.h, like build-font-ids.sh,
 // so a font change also invalidates cached sections.
-#define READER_14_FONT_ID (106946491)
+#define READER_14_FONT_ID (1493194985)
 
 // Custom reader font loaded from SD card
 #define CUSTOM_FONT_ID (-999999)

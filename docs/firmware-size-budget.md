@@ -25,16 +25,18 @@ size limit above.
 ## What gets us under the limit
 
 Korean fonts dominate the image. Since 1.6.5-ko.4 the built-in reader font is
-Pretendard 14 (full Hangul, no Hanja, 1.8 MB). KoPub Batang 14 (3.13 MB with its
-4,620 Hanja) was the reader font until 1.6.5-ko.3; it moved out of the image to make
-room for the Bluetooth page turner (BLE controller and NimBLE, ~400 KB) and is
-published with every release as `KoPubBatang-14.epdfont` for SD-card use. Pretendard
+Pretendard 14 with KoPub Batang as its glyph fallback: every code point the old
+KoPub built-in carried (full Hangul, the 4,620 Hanja, CJK symbols), 2.5 MB of
+bitmaps against KoPub's 2.9 MB, because Pretendard's Hangul is lighter. KoPub Batang 14
+was the whole reader font until 1.6.5-ko.3; that freed the room for the Bluetooth
+page turner (BLE controller and NimBLE, ~400 KB). All-KoPub reading is published
+with every release as `KoPubBatang-14.epdfont` for SD-card use. Pretendard
 10 (the UI font) stays cut to KS X 1001, because a UI font only needs the syllables
 that appear in menus, titles and filenames.
 
 | Cut | Where | Saving |
 |-----|-------|--------|
-| KoPub Batang reader font replaced by Pretendard 14 | `convert-korean-builtin-fonts.sh`, release `.epdfont` | **~1.2 MB** |
+| Reader font Hangul from Pretendard 14 instead of KoPub (Hanja still KoPub) | `convert-korean-builtin-fonts.sh` | **~330 KB** |
 | Pretendard UI font restricted to KS X 1001 Hangul | `convert-korean-builtin-fonts.sh` | **828 KB** |
 | Drop Latin/Cyrillic hyphenation tries | `-DCP_HYPHENATION_LANGS=0` | ~310 KB |
 | Ship only Korean + English UI | only `english.yaml` + `korean.yaml` | ~184 KB |
@@ -77,7 +79,8 @@ for upstream parity; individual languages toggle with
 | 1.5.0-ko.1 (Pretendard cut to KS X 1001) | 6,041,152 | 512,448 under |
 | 1.6.5-ko.3 | 6,183,456 | 370,144 under |
 | 1.6.5-ko.3 + Bluetooth page turner, KoPub built in | 6,573,152 | **19,552 over** |
-| 1.6.5-ko.4 (Pretendard 14 reader font) | 5,367,312 | 1,186,288 under |
+| Pretendard 14 without Hanja (not shipped) | 5,367,312 | 1,186,288 under |
+| 1.6.5-ko.4 (Pretendard 14 + KoPub Hanja, Bluetooth) | 6,255,248 | 298,352 under |
 
 1.5.0-ko.0 shipped over the limit. That does not just force the two-step install
 for new users: **it breaks OTA for existing ones.** OTA and the SD-card update
@@ -87,7 +90,7 @@ an oversized image with `TOO_LARGE` (see `FirmwareFlasher.cpp`). Only a full
 flash changes the table, and some units have USB disabled, leaving them with no
 route at all. Hence 1.5.0-ko.1.
 
-Headroom is now ~1.18 MB on X3/X4 and over 1.08 MB on every S3 board. Before adding flash-resident data, rebuild `gh_release`
+Headroom is now ~291 KB on X3/X4; the tightest board is PaperMono (6,355,760 B, ~193 KB under). Before adding flash-resident data, rebuild `gh_release`
 and check `firmware.bin` against 6,553,600 bytes. Remaining levers, largest
 first: dropping the Pretendard 10 UI font and drawing the UI with Pretendard 14
 (~282 KB), excluding

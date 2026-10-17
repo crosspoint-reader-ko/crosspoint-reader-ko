@@ -13,20 +13,23 @@ cd "$(dirname "$0")"
 
 PY="${PYTHON:-python3}"
 
-# Pretendard 14pt — the EPUB reader font. Full Hangul syllable block; Pretendard
-# ships no Hanja, so books with Hanja need an SD font. KoPub Batang (the reader
-# font up to 1.6.5-ko.3) is published as a release .epdfont for that; see
-# .github/workflows/release.yml.
+# Pretendard 14pt — the EPUB reader font. Pretendard first, KoPub Batang Light for
+# every code point Pretendard lacks (the 4,620 Hanja and some symbols), over the
+# ranges the KoPub built-in carried up to 1.6.5-ko.3: the reader keeps every glyph it
+# had. Reading entirely in KoPub is the release asset KoPubBatang-14.epdfont
+# (.github/workflows/release.yml).
 READER_INTERVALS=(
   --additional-intervals 0x1100,0x11FF  # Hangul Jamo
   --additional-intervals 0x3000,0x303F  # CJK symbols and punctuation
   --additional-intervals 0x3130,0x318F  # Hangul compatibility Jamo
+  --additional-intervals 0x4E00,0x9FFF  # CJK unified ideographs (Hanja)
   --additional-intervals 0xAC00,0xD7A3  # Hangul syllables
 )
 
 echo "Generating pretendard_14_regular.h ..."
 $PY fontconvert.py pretendard_14_regular 14 \
   ../builtinFonts/source/Pretendard/Pretendard-Regular.ttf \
+  "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" \
   --2bit "${READER_INTERVALS[@]}" > ../builtinFonts/pretendard_14_regular.h
 
 # Pretendard 10pt — the UI font. Restricted to the KS X 1001 Hangul set (2,350
@@ -55,7 +58,8 @@ import re
 NOTES = {
     "../builtinFonts/pretendard_14_regular.h":
         " * Command used: lib/EpdFont/scripts/convert-korean-builtin-fonts.sh\n"
-        " * Hangul coverage: full block; no Hanja (Pretendard ships none).",
+        " * Pretendard first, KoPub Batang Light for what Pretendard lacks (Hanja): every code point\n"
+        " * the KoPub built-in carried up to 1.6.5-ko.3.",
     "../builtinFonts/pretendard_10_regular.h":
         " * Command used: lib/EpdFont/scripts/convert-korean-builtin-fonts.sh\n"
         " * Hangul coverage: KS X 1001 (2,350 syllables) via ks_x_1001_intervals.py,\n"

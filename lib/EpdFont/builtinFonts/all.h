@@ -8,6 +8,6 @@
 // UI fonts (Pretendard 10pt) - Regular only, synthetic bold used when needed
 #include <builtinFonts/pretendard_10_regular.h>
 
-// Korean EPUB reader font (Pretendard 14pt, full Hangul, no Hanja) - Regular only, synthetic bold used when
-// needed. KoPub Batang ships as a release .epdfont instead.
+// Korean EPUB reader font (Pretendard 14pt; Hanja and anything else Pretendard lacks from KoPub Batang) -
+// Regular only, synthetic bold used when needed. All-KoPub reading ships as a release .epdfont.
 #include <builtinFonts/pretendard_14_regular.h>
