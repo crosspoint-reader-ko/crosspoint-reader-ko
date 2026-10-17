@@ -74,6 +74,19 @@ constexpr bool matches(const Binding b, const uint32_t code, const bool hold) {
   return ((b ^ (code | (hold ? kHoldBit : 0u))) & mask) == 0;
 }
 
+// A button known only by the key the decoder read: byte index and report id 0xFF.
+constexpr uint32_t keyButtonCode(const uint8_t keycode) { return 0xFFFF00u | keycode; }
+
+// The code a learning screen stores for a press. A press whose first differing byte is 0
+// is a byte falling back to 0 against a mis-read rest frame, not a button: it would be
+// dropped on the next settings load (valid() refuses value 0), and the same button reads
+// with another code once the rest is known. Such a press is learned by the key the decoder
+// read from the frame, else not at all (0).
+constexpr uint32_t learnableCode(const uint32_t code, const uint8_t keycode) {
+  if ((code & 0xFFu) != 0) return code;
+  return keycode != 0 ? keyButtonCode(keycode) : 0u;
+}
+
 // Lookup: at most 8 compares over 32 contiguous bytes, no allocation.
 inline Action lookup(const RemoteTable& t, const uint32_t code, const bool hold) {
   for (uint8_t i = 0; i < t.count; ++i) {
@@ -197,6 +210,17 @@ inline bool learn(RemoteTable& t, const Action action, const uint32_t code, cons
   if (t.count >= kMaxBindings) return false;
   t.bindings[t.count++] = makeBinding(code, hold, action);
   return true;
+}
+
+// What a press does when the table has no slot for its raw code: a slot learned for the key
+// the decoder read from the same frame (a remote whose first press came as a decoder-only
+// key and later presses as byte edges), else the old usage mapping.
+inline Action keyFallback(const RemoteTable& t, const uint8_t keycode, const Action legacy) {
+  if (keycode != 0) {
+    const Action a = lookup(t, keyButtonCode(keycode), false);
+    if (a != Action::None) return a;
+  }
+  return legacy;
 }
 
 // --- Decision for each raw edge ------------------------------------------------

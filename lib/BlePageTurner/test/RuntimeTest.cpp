@@ -470,4 +470,31 @@ TEST_F(RuntimeTest, PollEventDrainsKeysAndHandsOverRawEdges) {
   EXPECT_FALSE(bleturner::pollEvent(ev));
 }
 
+TEST_F(RuntimeTest, PollEventLearnsAZeroByteEdgeByItsKeyOrNotAtAll) {
+  // "2:2=00": a byte falling back to 0 against a mis-read rest frame is not a button.
+  bleturner::port::RawEdge e;
+  e.reportId = 2;
+  e.byteIndex = 2;
+  e.value = 0;
+  e.pressed = true;
+  e.keycode = 0x4E;
+  radio().raw.push_back(e);
+  e.pressed = false;
+  e.keycode = 0;
+  radio().raw.push_back(e);
+  bleturner::Event ev{};
+  ASSERT_TRUE(bleturner::pollEvent(ev));
+  EXPECT_EQ(ev.code, bleturner::keyButtonCode(0x4E));
+  EXPECT_TRUE(ev.pressed);
+  ASSERT_TRUE(bleturner::pollEvent(ev));
+  EXPECT_EQ(ev.code, bleturner::keyButtonCode(0x4E)) << "the release pairs with the press";
+  EXPECT_FALSE(ev.pressed);
+
+  e.pressed = true;  // no key read from the frame: nothing to learn
+  radio().raw.push_back(e);
+  e.pressed = false;
+  radio().raw.push_back(e);
+  EXPECT_FALSE(bleturner::pollEvent(ev));
+}
+
 }  // namespace

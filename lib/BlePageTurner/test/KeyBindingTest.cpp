@@ -33,6 +33,21 @@ TEST(BleBindingTableTest, KeyIdentityReadsAsTheKeyCode) {
   EXPECT_STREQ(text, "3:1=02");
 }
 
+TEST(BleBindingTableTest, LearnableCodeNeverStoresAZeroValue) {
+  EXPECT_EQ(learnableCode(0x030102, 0x4E), 0x030102u);
+  EXPECT_EQ(learnableCode(0x020200, 0x4E), keyButtonCode(0x4E));
+  EXPECT_EQ(learnableCode(0x020200, 0), 0u);
+  EXPECT_TRUE(valid(makeBinding(learnableCode(0x020200, 0x4E), false, Action::NextPage)));
+}
+
+TEST(BleBindingTableTest, KeyFallbackPrefersAKeyLearnedSlot) {
+  RemoteTable t{};
+  ASSERT_TRUE(learn(t, Action::PrevPage, keyButtonCode(0x1C), false));
+  EXPECT_EQ(keyFallback(t, 0x1C, Action::None), Action::PrevPage);
+  EXPECT_EQ(keyFallback(t, 0x4F, Action::NextPage), Action::NextPage);
+  EXPECT_EQ(keyFallback(t, 0, Action::NextPage), Action::NextPage);
+}
+
 TEST(BleBindingTableTest, FullTableRefusesAndGarbageIsNotValid) {
   RemoteTable t{};
   const Action actions[4] = {Action::NextPage, Action::PrevPage, Action::NextChapter, Action::PrevChapter};

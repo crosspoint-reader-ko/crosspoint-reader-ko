@@ -261,8 +261,9 @@ bool serveReader() {
   const bool viaTable = routes(router.table);
   while (port::popRaw(raw)) {
     if (!viaTable) continue;
-    const Action a = onRawEdge(*router.table, raw.code(), raw.pressed, raw.atMs,
-                               pageActionFor(*config, raw.keycode, raw.mods), router.wait);
+    const Action a =
+        onRawEdge(*router.table, raw.code(), raw.pressed, raw.atMs,
+                  keyFallback(*router.table, raw.keycode, pageActionFor(*config, raw.keycode, raw.mods)), router.wait);
     acted = act(a) || acted;  // act first, log after: the log line is not on the page's clock
     say(false, "raw %u:%u=%02X %s -> %s\n", raw.reportId, raw.byteIndex, raw.value, raw.pressed ? "down" : "up",
         actionName(a));
@@ -703,10 +704,27 @@ bool pollEvent(Event& event) {
   port::KeyPress key;
   while (port::popKey(key)) {
   }
+  // A press is reported under its learnable code (learnableCode), and its release under the
+  // same code so the learning screen can pair them. A press with no learnable code is skipped
+  // with its release.
+  static uint32_t pressRaw = 0;
+  static uint32_t pressAs = 0;
   port::RawEdge raw;
-  if (!port::popRaw(raw)) return false;
-  event = Event{raw.code(), raw.pressed, raw.atMs, raw.wasRest};
-  return true;
+  while (port::popRaw(raw)) {
+    uint32_t code = raw.code();
+    if (raw.pressed) {
+      pressRaw = code;
+      pressAs = learnableCode(code, raw.keycode);
+      code = pressAs;
+    } else if (code == pressRaw) {
+      code = pressAs;
+      pressRaw = 0;
+    }
+    if (code == 0) continue;
+    event = Event{code, raw.pressed, raw.atMs, raw.wasRest};
+    return true;
+  }
+  return false;
 }
 
 #ifdef BLE_PAGE_TURNER_PROBE

@@ -564,6 +564,25 @@ TEST_F(TickTest, HoldSlotTapActsOnReleaseHoldAtTheThreshold) {
   EXPECT_EQ(host().delivered.size(), 2u) << "the release after a hold does nothing";
 }
 
+TEST_F(TickTest, KeyLearnedButtonKeepsTurningWhenItLaterComesAsAByteEdge) {
+  // Learned while the remote's rest frame was unknown: the press reached the screen only as
+  // the decoder's key (0x1C). Every later press comes as a byte edge with that key.
+  running();
+  link("Some Remote");
+  auto* t = bleturner::editableTable(config.remotes, config.remoteCount, "7d:de:5c:bd:ae:ca", "Some Remote");
+  ASSERT_TRUE(t && bleturner::learn(*t, Action::NextPage, bleturner::keyButtonCode(0x1C), false));
+  pass(fake::reading());
+  for (int i = 0; i < 3; ++i) {
+    edge(0x02021C, true, 0x1C);
+    pass(fake::reading());
+    radio().now += 100;
+    edge(0x02021C, false);
+    pass(fake::reading());
+    radio().now += 1000;
+  }
+  EXPECT_EQ(host().delivered, (std::vector<Action>{Action::NextPage, Action::NextPage, Action::NextPage}));
+}
+
 TEST_F(TickTest, ShortcutsCountAsActivityWhateverTheBookSays) {
   running();
   link("Some Remote");
