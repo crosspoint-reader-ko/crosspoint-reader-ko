@@ -64,9 +64,9 @@ static bool wakePowerReleasePending = false;
 EpdFont pretendard10RegularFont(&pretendard_10_regular);
 EpdFontFamily uiFontFamily(&pretendard10RegularFont);
 
-// Korean EPUB reader font (KoPub Batang 14pt) - Regular only, synthetic bold applied by renderer
-EpdFont kopub14RegularFont(&kopub_14_regular);
-EpdFontFamily kopub14FontFamily(&kopub14RegularFont);
+// Korean EPUB reader font (Pretendard 14pt) - Regular only, synthetic bold applied by renderer
+EpdFont pretendard14RegularFont(&pretendard_14_regular);
+EpdFontFamily readerFontFamily(&pretendard14RegularFont);
 
 // Korean fonts loading from SD card is disabled due to memory constraints
 // Font files should be in /.crosspoint/fonts/ directory
@@ -108,7 +108,7 @@ bool trySdFontLoad(GfxRenderer& renderer, int fontId, const char* name, const ch
 // Returns true if custom font was loaded successfully
 bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
   if (!SETTINGS.hasCustomFont()) {
-    LOG_DBG("FNT", "No custom font configured, using default KoPub Batang");
+    LOG_DBG("FNT", "No custom font configured, using default Pretendard");
     return false;
   }
 
@@ -481,7 +481,7 @@ void setupDisplayAndFonts(bool seamless = false) {
   fontCacheManager.setFontDecompressor(&fontDecompressor);
   renderer.setFontCacheManager(&fontCacheManager);
   // Korean build: upstream NotoSerif/NotoSans/Ubuntu built-ins are not loaded.
-  // KoPub Batang is the default reader font; Pretendard drives all UI sizes.
+  // Pretendard 14pt is the default reader font; Pretendard 10pt drives all UI sizes.
 
   // UI font (Pretendard 10pt) - used for all UI sizes in Korean version
   renderer.insertFont(UI_FONT_ID, &uiFontFamily);
@@ -489,8 +489,8 @@ void setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(UI_12_FONT_ID, &uiFontFamily);
   renderer.insertFont(SMALL_FONT_ID, &uiFontFamily);
 
-  // Korean EPUB reader font (KoPub Batang 14pt) - always register as fallback
-  renderer.insertFont(KOPUB_14_FONT_ID, &kopub14FontFamily);
+  // Korean EPUB reader font (Pretendard 14pt) - always registered as the default
+  renderer.insertFont(READER_14_FONT_ID, &readerFontFamily);
 
   // Try to load custom reader font from SD card
   loadCustomReaderFont(renderer);

@@ -89,7 +89,7 @@ void SettingsActivity::rebuildSettingsLists() {
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SELECT_SLEEP_SCREENS, SettingAction::SelectSleepScreens));
   // Korean: UI "system font" picker (loads an SD font as the primary UI font, Pretendard fallback).
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SYSTEM_FONT, SettingAction::SystemFontSelection));
-  // Korean: EPUB reader font picker (loads an SD font under CUSTOM_FONT_ID, else KoPub Batang).
+  // Korean: EPUB reader font picker (loads an SD font under CUSTOM_FONT_ID, else Pretendard 14pt).
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontSelection));
   if (!BoardConfig::hasTouch()) {

@@ -17,7 +17,7 @@
 namespace fui = freeink::ui;
 
 namespace {
-constexpr const char* DEFAULT_FONT_NAME = "KoPub 바탕 (기본)";
+constexpr const char* DEFAULT_FONT_NAME = "Pretendard (기본)";
 constexpr const char* CACHE_DIR = "/.crosspoint/cache";
 
 // Index of `path` in `fontFiles`, or 0 (the built-in default entry) when it is not listed.
@@ -153,7 +153,7 @@ void FontSelectionActivity::loadFontList() {
   fontNames.clear();
 
   // First entry is always the default font (empty path means default).
-  // Reader default is KoPub Batang; UI system-font default is Pretendard.
+  // Reader default is Pretendard 14pt; UI system-font default is Pretendard.
   fontFiles.emplace_back("");
   fontNames.emplace_back(isSystemTarget() ? "Pretendard (기본)" : DEFAULT_FONT_NAME);
 

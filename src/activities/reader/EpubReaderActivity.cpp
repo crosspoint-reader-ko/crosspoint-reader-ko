@@ -2048,7 +2048,7 @@ void EpubReaderActivity::renderStatusBar() const {
 
 namespace {
 // Korean Text panel. Upstream's rows (font family, point size, line spacing, alignment, focus
-// reading) assume the .cpfont/TTF engine; the Korean build renders KoPub Batang or one custom SD
+// reading) assume the .cpfont/TTF engine; the Korean build renders Pretendard 14pt or one custom SD
 // .epdfont at a single size, so the size row is gone and the font row opens FontSelectionActivity.
 // Focus Reading is English-only here and stays in Reader Options; the last row opens Reader Options
 // for everything else (indent, character wrap, hyphenation, margins...).

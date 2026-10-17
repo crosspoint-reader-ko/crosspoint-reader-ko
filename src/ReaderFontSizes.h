@@ -7,7 +7,7 @@
 // fontPointSize), not an abstract Small/Medium/Large slot.
 //
 // The Korean build does not use upstream's SD-card font registry to enumerate
-// installed point sizes: its reader font is KoPub Batang or a single-size SD
+// installed point sizes: its reader font is Pretendard 14pt or a single-size SD
 // .epdfont picked in FontSelectionActivity. Only the built-in set below is
 // selectable, so the registry-aware readerFontPointSizes() upstream ships is
 // not carried here.

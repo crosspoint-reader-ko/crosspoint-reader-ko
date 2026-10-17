@@ -12,7 +12,7 @@
 class FontSelectionActivity final : public UiListActivity {
  public:
   // Which font slot this picker configures:
-  //   Reader  -> SETTINGS.customFontPath (EPUB body font; default KoPub Batang)
+  //   Reader  -> SETTINGS.customFontPath (EPUB body font; default Pretendard 14pt)
   //   System  -> SETTINGS.systemFontPath (UI glyph fallback; default Pretendard)
   enum class Target { Reader, System };
 

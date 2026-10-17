@@ -16,6 +16,10 @@ name: Compile Release
 #   firmware.bin                       - OTA asset for 1.5.x-ko devices (legacy name, keep)
 #   CrossPoint-<tag>.bin               - merged image under the pre-1.6.5 name (web flasher)
 #   bootloader.bin, partitions.bin
+# Fonts:
+#   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul + Hanja), the built-in reader font up
+#                                        to 1.6.5-ko.3. Copy to /fonts on the SD card and pick it in
+#                                        Settings > Reader font.
 
 on:
   push:
@@ -170,6 +174,24 @@ jobs:
         pattern: release-*
         merge-multiple: true
 
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+
+    - name: Build KoPub Batang SD font
+      run: |
+        set -euo pipefail
+        pip install "freetype-py>=2.5.1"
+        cd lib/EpdFont/scripts
+        python ttf_to_epdfont.py kopub_14_regular 14 \
+          "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" --2bit \
+          --additional-intervals 0x1100,0x11FF \
+          --additional-intervals 0x3000,0x303F \
+          --additional-intervals 0x3130,0x318F \
+          --additional-intervals 0x4E00,0x9FFF \
+          --additional-intervals 0xAC00,0xD7A3 \
+          -o "$GITHUB_WORKSPACE/dist/KoPubBatang-14.epdfont"
+
     - name: Verify assets
       run: |
         set -euo pipefail
@@ -178,7 +200,7 @@ jobs:
           test -f "dist/crosspoint-${version}-${device}.bin"
           test -f "dist/CrossPoint-${GITHUB_REF_NAME}-${device}-full.bin"
         done
-        for f in firmware.bin "CrossPoint-${GITHUB_REF_NAME}.bin" bootloader.bin partitions.bin; do
+        for f in firmware.bin "CrossPoint-${GITHUB_REF_NAME}.bin" bootloader.bin partitions.bin KoPubBatang-14.epdfont; do
           test -f "dist/$f"
         done
         # GitHub compares asset names case-insensitively; two names that differ only in

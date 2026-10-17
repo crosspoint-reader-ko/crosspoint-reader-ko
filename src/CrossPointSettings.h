@@ -289,7 +289,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Reader font settings
   uint8_t fontFamily = NOTOSERIF;
   // Point size of the reader font. Persisted for settings compatibility with upstream; the
-  // Korean reader font is KoPub Batang or a custom SD .epdfont (see getReaderFontId), so this
+  // Korean reader font is Pretendard 14pt or a custom SD .epdfont (see getReaderFontId), so this
   // only selects a size for upstream's built-in families, which this build does not load.
   uint8_t fontPointSize = DEFAULT_FONT_POINT_SIZE;
   // Reader line spacing
@@ -329,7 +329,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t pwrBtnFootnoteBack = 1;
   // Use book's embedded CSS styles for EPUB rendering (1 = enabled, 0 = disabled)
   uint8_t embeddedStyle = 1;
-  // Custom reader font path (empty means use default KoPub Batang font)
+  // Custom reader font path (empty means use default Pretendard 14pt font)
   char customFontPath[64] = "";
   // UI "system font" path loaded from SD card (empty means Pretendard only).
   // Used as a glyph-level fallback for the UI font so titles/menus can show Hanja/Kana.

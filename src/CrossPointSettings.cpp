@@ -374,7 +374,7 @@ int CrossPointSettings::getReaderFontId() const {
   // A custom SD font renders under the id it was registered with (CUSTOM_FONT_ID), which is also
   // the cache key, so switching fonts invalidates section caches. fontFamily/fontPointSize select
   // nothing here: upstream's built-in families are not loaded in this build.
-  return hasCustomFont() ? CUSTOM_FONT_ID : KOPUB_14_FONT_ID;
+  return hasCustomFont() ? CUSTOM_FONT_ID : READER_14_FONT_ID;
 }
 
 int CrossPointSettings::getUiFontId() const {
@@ -384,7 +384,7 @@ int CrossPointSettings::getUiFontId() const {
 
 const char* CrossPointSettings::getCustomFontName() const {
   if (!hasCustomFont()) {
-    return "KoPub 바탕 (기본)";
+    return "Pretendard (기본)";
   }
   // Extract filename from path (e.g., "/.fonts/MyFont.epdfont" -> "MyFont")
   const char* lastSlash = strrchr(customFontPath, '/');

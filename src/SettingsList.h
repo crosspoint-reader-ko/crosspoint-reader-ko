@@ -137,7 +137,7 @@ inline std::vector<SettingInfo> getSettingsList(const std::vector<DictionaryEntr
                             StrId::STR_CAT_DISPLAY),
 
         // --- Reader ---
-        // fontFamily/fontSize entries omitted: the Korean reader uses KoPub Batang or a custom
+        // fontFamily/fontSize entries omitted: the Korean reader uses Pretendard 14pt or a custom
         // SD .epdfont (FontSelectionActivity, Target::Reader). Upstream's built-in
         // NotoSerif/NotoSans families are not loaded in this build, so neither picker would
         // select anything renderable.
