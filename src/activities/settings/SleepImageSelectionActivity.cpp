@@ -1,14 +1,18 @@
 #include "SleepImageSelectionActivity.h"
 
 #include <Bitmap.h>
+#include <Epub/converters/PngToFramebufferConverter.h>
+#include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cmath>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SleepImageSelectionStore.h"
 #include "components/UITheme.h"
@@ -16,7 +20,12 @@
 
 namespace {
 // Probed in priority order; both names are accepted by SleepActivity.
-constexpr const char* SLEEP_DIRS[] = {"/.sleep", "/sleep"};
+constexpr const char* const SLEEP_DIRS[] = {"/.sleep", "/sleep"};
+// Transparent mode reads its overlays from separate directories (BMP or PNG).
+constexpr const char* const OVERLAY_DIRS[] = {"/.sleep-overlay", "/sleep-overlay"};
+constexpr size_t DIR_COUNT = 2;
+static_assert(sizeof(SLEEP_DIRS) / sizeof(SLEEP_DIRS[0]) == DIR_COUNT, "dir list size");
+static_assert(sizeof(OVERLAY_DIRS) / sizeof(OVERLAY_DIRS[0]) == DIR_COUNT, "dir list size");
 
 // Top overlay strip — keeps the bottom of the preview clear so the button
 // hints don't fight for space with status text. The strip is intentionally
@@ -50,8 +59,11 @@ void SleepImageSelectionActivity::step(const int delta) {
   requestUpdate();
 }
 
+const char* const* SleepImageSelectionActivity::scanDirList() const { return overlayMode ? OVERLAY_DIRS : SLEEP_DIRS; }
+
 void SleepImageSelectionActivity::onEnter() {
   Activity::onEnter();
+  overlayMode = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT_CUSTOM;
   scanDirs();
   SLEEP_IMAGE_SELECTION.loadFromFile();
 
@@ -59,7 +71,7 @@ void SleepImageSelectionActivity::onEnter() {
   // (rather than at sleep time) so the user sees an accurate selection state
   // immediately and we don't keep stale paths alive longer than needed.
   std::set<std::string> existing(imagePaths.begin(), imagePaths.end());
-  if (SLEEP_IMAGE_SELECTION.pruneMissing(existing)) {
+  if (SLEEP_IMAGE_SELECTION.pruneMissing(existing, scanDirList(), DIR_COUNT)) {
     dirty = true;
   }
 
@@ -78,7 +90,9 @@ void SleepImageSelectionActivity::scanDirs() {
   imagePaths.clear();
   char nameBuf[256];
 
-  for (const char* dirPath : SLEEP_DIRS) {
+  const char* const* dirs = scanDirList();
+  for (size_t d = 0; d < DIR_COUNT; d++) {
+    const char* dirPath = dirs[d];
     auto dir = Storage.open(dirPath);
     if (!dir || !dir.isDirectory()) {
       continue;
@@ -88,6 +102,16 @@ void SleepImageSelectionActivity::scanDirs() {
       file.getName(nameBuf, sizeof(nameBuf));
       std::string fname = nameBuf;
       if (fname.empty() || fname[0] == '.') continue;
+      if (overlayMode && FsHelpers::hasPngExtension(fname)) {
+        std::string fullPath = std::string(dirPath) + "/" + fname;
+        ImageDimensions dims{};
+        if (!PngToFramebufferConverter::getDimensionsStatic(fullPath, dims)) {
+          LOG_DBG("SIS", "Skipping invalid PNG: %s", fullPath.c_str());
+          continue;
+        }
+        imagePaths.emplace_back(std::move(fullPath));
+        continue;
+      }
       if (!FsHelpers::hasBmpExtension(fname)) continue;
       // Validate header so we don't ship the user a "selected" image that
       // SleepActivity will silently skip later.
@@ -148,6 +172,31 @@ void SleepImageSelectionActivity::loop() {
   buttonNavigator.onPreviousRelease([this] { step(-1); });
 }
 
+void SleepImageSelectionActivity::renderPngPreview(const std::string& path, const int previewY,
+                                                   const int previewHeight) const {
+  ImageDimensions dims{};
+  if (!PngToFramebufferConverter::getDimensionsStatic(path, dims) || dims.width <= 0 || dims.height <= 0) {
+    LOG_ERR("SIS", "PNG header failed: %s", path.c_str());
+    return;
+  }
+  // The decoder needs a large contiguous block; SD font glyph caches are rebuilt on demand.
+  if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+
+  const int pageWidth = renderer.getScreenWidth();
+  const float scale =
+      std::min({1.0f, static_cast<float>(pageWidth) / dims.width, static_cast<float>(previewHeight) / dims.height});
+  RenderConfig config;
+  config.x = (pageWidth - static_cast<int>(dims.width * scale)) / 2;
+  config.y = previewY + (previewHeight - static_cast<int>(dims.height * scale)) / 2;
+  config.maxWidth = pageWidth;
+  config.maxHeight = previewHeight;
+  config.preserveAlpha = true;
+  PngToFramebufferConverter converter;
+  if (!converter.decodeToFramebuffer(path, renderer, config)) {
+    LOG_ERR("SIS", "PNG preview failed: %s", path.c_str());
+  }
+}
+
 void SleepImageSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const auto pageWidth = renderer.getScreenWidth();
@@ -159,7 +208,8 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
       GUI.drawHeader(renderer, touchHeaderRect(), tr(STR_SELECT_SLEEP_SCREENS));
     }
     renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 2 - 10, tr(STR_NO_FILES_FOUND));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20, "/.sleep, /sleep");
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20,
+                              overlayMode ? "/.sleep-overlay, /sleep-overlay" : "/.sleep, /sleep");
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -178,9 +228,10 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
     previewHeight = pageHeight - previewY - TOUCH_STRIP_HEIGHT;
   }
 
-  HalFile file;
   const auto& path = imagePaths[currentIndex];
-  if (!Storage.openFileForRead("SIS", path, file)) {
+  if (FsHelpers::hasPngExtension(path)) {
+    renderPngPreview(path, previewY, previewHeight);
+  } else if (HalFile file; !Storage.openFileForRead("SIS", path, file)) {
     LOG_ERR("SIS", "Failed to open %s", path.c_str());
   } else {
     Bitmap bitmap(file, true);

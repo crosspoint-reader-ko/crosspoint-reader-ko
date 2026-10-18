@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <cstring>
+
 namespace {
 constexpr char SLEEP_SELECTION_FILE[] = "/.crosspoint/sleep_selection.txt";
 constexpr char CROSSPOINT_DIR[] = "/.crosspoint";
@@ -92,10 +94,18 @@ void SleepImageSelectionStore::setSelected(const std::string& fullPath, bool isS
   }
 }
 
-bool SleepImageSelectionStore::pruneMissing(const std::set<std::string>& existingPaths) {
+bool SleepImageSelectionStore::pruneMissing(const std::set<std::string>& existingPaths, const char* const* dirs,
+                                            const size_t dirCount) {
+  const auto inScannedDir = [dirs, dirCount](const std::string& path) {
+    for (size_t i = 0; i < dirCount; i++) {
+      const size_t len = strlen(dirs[i]);
+      if (path.size() > len && path.compare(0, len, dirs[i]) == 0 && path[len] == '/') return true;
+    }
+    return false;
+  };
   bool changed = false;
   for (auto it = selected.begin(); it != selected.end();) {
-    if (existingPaths.count(*it) == 0) {
+    if (inScannedDir(*it) && existingPaths.count(*it) == 0) {
       LOG_DBG("SIS", "Pruning missing selection: %s", it->c_str());
       it = selected.erase(it);
       changed = true;

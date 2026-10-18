@@ -9,8 +9,10 @@
 
 struct Rect;
 
-// Browse and toggle which BMPs in /.sleep and /sleep are eligible for the
-// random Custom sleep-screen rotation. Persists via SleepImageSelectionStore.
+// Browse and toggle which images are eligible for the random sleep-screen
+// rotation. Follows the current sleep screen mode: Transparent lists the
+// overlays (BMP/PNG) in /.sleep-overlay and /sleep-overlay; every other mode
+// lists the BMPs in /.sleep and /sleep. Persists via SleepImageSelectionStore.
 //
 // UX:
 //   - Up / Down / Left / Right : navigate previous / next image
@@ -34,10 +36,12 @@ class SleepImageSelectionActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  // Walks /.sleep and /sleep, collects any readable BMP, and runs the store's
-  // prune pass against the discovered set so deleted files drop out of the
-  // saved selection.
+  // Walks the mode's directories, collects any readable image, and runs the
+  // store's prune pass against the discovered set so deleted files drop out
+  // of the saved selection.
   void scanDirs();
+  const char* const* scanDirList() const;
+  void renderPngPreview(const std::string& path, int previewY, int previewHeight) const;
   void toggleCurrent();
   void step(int delta);
   // Touch layout: titled header (back arrow) on top, selection strip at the
@@ -46,6 +50,7 @@ class SleepImageSelectionActivity final : public Activity {
 
   std::vector<std::string> imagePaths;  // full paths, e.g. "/.sleep/foo.bmp"
   int currentIndex = 0;
-  bool dirty = false;  // any toggle since onEnter
+  bool dirty = false;        // any toggle since onEnter
+  bool overlayMode = false;  // Transparent sleep screen: list overlay images
   ButtonNavigator buttonNavigator;
 };

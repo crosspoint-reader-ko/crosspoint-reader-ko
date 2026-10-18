@@ -560,6 +560,8 @@ To use transparent sleep overlays, set the sleep screen mode to **Transparent**,
 - **Multiple Images (recommended):** Create a `.sleep-overlay` directory in the root of the SD card and place any number of valid overlay `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. A directory named `sleep-overlay` is also accepted as a fallback.
 - **Single Image:** Place `sleep-overlay.bmp` or `sleep-overlay.png` in the root directory. A root BMP takes priority over a root PNG, and both take priority over the `.sleep-overlay`/`sleep-overlay` directories.
 
+**Select Sleep Screens** (Display settings) follows the current sleep screen mode: in **Transparent** it lists the overlays in `.sleep-overlay`/`sleep-overlay` (BMP and PNG), in every other mode the BMPs in `.sleep`/`sleep`. The two selections are kept separately. If nothing is selected for a mode, every image in its directories is used.
+
 Transparent overlay files are intentionally separate from normal sleep images. Regular BMP formats supported by CrossPoint are accepted; white pixels leave the existing screen unchanged. For per-pixel alpha transparency, use a PNG with an alpha channel or a 32-bit BGRA BMP with both visible and non-opaque pixels. Opaque white pixels in alpha images erase the content behind them.
 
 > [!TIP]
