@@ -46,18 +46,22 @@ const SleepActivity::PreviewUi* activePreview = nullptr;
 // instead of storeBwBuffer(), whose 48 KB of chunks leaves the PNG decoder without a big enough block.
 bool previewBwOnly = false;
 
-// Draws the preview UI over the finished B/W pass. Returns true when the caller must stop
-// before displaying (B/W-only redraw).
-bool finishBwPass() {
+// Draws the preview UI into the framebuffer. Called after the B/W pass and in each gray plane
+// (the UI draws plane-aware), so the gray refresh keeps it on screen.
+void drawPreviewUi() {
   if (activePreview != nullptr && activePreview->draw != nullptr) activePreview->draw(activePreview->ctx);
+}
+
+// Finishes the B/W pass of a preview. Returns true when the caller must stop before displaying
+// (B/W-only redraw).
+bool finishBwPass() {
+  drawPreviewUi();
   return previewBwOnly;
 }
 
-// Kept separate from /sleep.bmp and /.sleep so alpha-overlay art does not mix with full-screen wallpapers.
+// Single-image override for Transparent mode (upstream's root overlay files).
 constexpr char TRANSPARENT_SLEEP_ROOT_BMP[] = "/sleep-overlay.bmp";
 constexpr char TRANSPARENT_SLEEP_ROOT_PNG[] = "/sleep-overlay.png";
-constexpr char TRANSPARENT_SLEEP_DIR[] = "/.sleep-overlay";
-constexpr char TRANSPARENT_SLEEP_LEGACY_DIR[] = "/sleep-overlay";
 constexpr size_t MAX_SLEEP_FILE_NAME_LEN = 256;
 constexpr uint8_t MIN_VISIBLE_ALPHA = 8;
 
@@ -383,6 +387,7 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
     // framebuffer that now contains an incomplete gray plane.
     return AlphaOverlayResult::Rendered;
   }
+  drawPreviewUi();
   renderer.copyGrayscaleLsbBuffers();
 
   if (!absolute) renderer.clearScreen(0x00);
@@ -391,26 +396,12 @@ AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& re
     renderer.setRenderMode(GfxRenderer::BW);
     return AlphaOverlayResult::Rendered;
   }
+  drawPreviewUi();
   renderer.copyGrayscaleMsbBuffers();
 
   renderer.displayGrayBuffer();
   renderer.setRenderMode(GfxRenderer::BW);
   return AlphaOverlayResult::Rendered;
-}
-
-enum class SleepRecentKind : uint8_t { Standard, Overlay };
-
-bool isRecentSleepIndex(const SleepRecentKind recentKind, const uint16_t idx, const uint8_t window) {
-  return recentKind == SleepRecentKind::Overlay ? APP_STATE.isRecentOverlaySleep(idx, window)
-                                                : APP_STATE.isRecentSleep(idx, window);
-}
-
-void pushRecentSleepIndex(const SleepRecentKind recentKind, const uint16_t idx) {
-  if (recentKind == SleepRecentKind::Overlay) {
-    APP_STATE.pushRecentOverlaySleep(idx);
-  } else {
-    APP_STATE.pushRecentSleep(idx);
-  }
 }
 
 // Korean: true when "<dirPath>/<name>" is ticked in Sleep Image Selection.
@@ -425,8 +416,7 @@ bool isSelectedSleepImage(const char* dirPath, const char* name) {
 
 // selectionDir: when non-null, only images selected in SleepImageSelectionStore count
 // (the store keeps absolute paths, so the directory is needed to rebuild them).
-bool findNextValidSleepImage(HalFile& dir, const SleepRecentKind recentKind, char* name,
-                             const char* selectionDir = nullptr) {
+bool findNextValidSleepImage(HalFile& dir, char* name, const char* selectionDir) {
   for (auto dirFile = dir.openNextFile(); dirFile; dirFile = dir.openNextFile()) {
     if (dirFile.isDirectory()) continue;
 
@@ -455,12 +445,9 @@ bool findNextValidSleepImage(HalFile& dir, const SleepRecentKind recentKind, cha
   return false;
 }
 
-bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind, std::string& selectedPath,
-                           const bool onlySelected = false) {
-  const char* selectionDir = onlySelected ? dirPath : nullptr;
-  auto dir = Storage.open(dirPath);
-  if (!dir || !dir.isDirectory()) return false;
-
+// Picks a random image across SLEEP_IMAGE_DIRS, avoiding recently shown ones. onlySelected limits
+// the pool to images ticked in Sleep Image Selection.
+bool selectRandomSleepFile(std::string& selectedPath, const bool onlySelected) {
   auto name = makeUniqueNoThrow<char[]>(MAX_SLEEP_FILE_NAME_LEN);
   if (!name) {
     LOG_ERR("SLP", "OOM: sleep filename buffer");
@@ -468,31 +455,46 @@ bool selectRandomSleepFile(const char* dirPath, const SleepRecentKind recentKind
   }
 
   uint16_t fileCount = 0;
-  while (fileCount < UINT16_MAX && findNextValidSleepImage(dir, recentKind, name.get(), selectionDir)) ++fileCount;
+  for (const char* dirPath : SLEEP_IMAGE_DIRS) {
+    auto dir = Storage.open(dirPath);
+    if (!dir || !dir.isDirectory()) continue;
+    while (fileCount < UINT16_MAX && findNextValidSleepImage(dir, name.get(), onlySelected ? dirPath : nullptr)) {
+      ++fileCount;
+    }
+  }
   if (fileCount == 0) return false;
 
-  // Pick a random wallpaper, excluding recently shown ones.
   // Window: up to SLEEP_RECENT_COUNT entries, capped at fileCount-1.
-  const uint8_t recentFill =
-      recentKind == SleepRecentKind::Overlay ? APP_STATE.recentOverlaySleepFill : APP_STATE.recentSleepFill;
-  const uint8_t window = static_cast<uint8_t>(std::min<uint16_t>(recentFill, fileCount - 1));
+  const uint8_t window = static_cast<uint8_t>(std::min<uint16_t>(APP_STATE.recentSleepFill, fileCount - 1));
   auto randomFileIndex = static_cast<uint16_t>(random(fileCount));
-  for (uint8_t attempt = 0; attempt < 20 && isRecentSleepIndex(recentKind, randomFileIndex, window); attempt++) {
+  for (uint8_t attempt = 0; attempt < 20 && APP_STATE.isRecentSleep(randomFileIndex, window); attempt++) {
     randomFileIndex = static_cast<uint16_t>(random(fileCount));
   }
 
-  dir.rewindDirectory();
-  for (uint16_t index = 0; index <= randomFileIndex; ++index) {
-    if (!findNextValidSleepImage(dir, recentKind, name.get(), selectionDir)) return false;
+  uint16_t index = 0;
+  for (const char* dirPath : SLEEP_IMAGE_DIRS) {
+    auto dir = Storage.open(dirPath);
+    if (!dir || !dir.isDirectory()) continue;
+    while (findNextValidSleepImage(dir, name.get(), onlySelected ? dirPath : nullptr)) {
+      if (index++ != randomFileIndex) continue;
+      selectedPath = dirPath;
+      selectedPath += "/";
+      selectedPath += name.get();
+      APP_STATE.pushRecentSleep(randomFileIndex);
+      APP_STATE.saveToFile();
+      return true;
+    }
   }
+  return false;
+}
 
-  selectedPath.reserve(strlen(dirPath) + 1 + strlen(name.get()));
-  selectedPath = dirPath;
-  selectedPath += "/";
-  selectedPath += name.get();
-  pushRecentSleepIndex(recentKind, randomFileIndex);
-  APP_STATE.saveToFile();
-  return true;
+// Korean: honors Sleep Image Selection. Selected images first; with none of them on the card
+// (or nothing selected), every valid image is used rather than the default screen.
+bool pickSleepFile(std::string& selectedPath) {
+  auto& selection = SleepImageSelectionStore::getInstance();
+  selection.loadFromFile();
+  return (!selection.empty() && selectRandomSleepFile(selectedPath, true)) ||
+         selectRandomSleepFile(selectedPath, false);
 }
 
 bool drawSleepPopupPreservingFrame(GfxRenderer& renderer) {
@@ -645,24 +647,8 @@ void SleepActivity::renderCustomSleepScreen() const {
   // A root sleep.bmp (then sleep.png) takes priority over the /sleep folders.
   if (renderSleepImagePath("/sleep.bmp") || renderSleepImagePath("/sleep.png")) return;
 
-  // Korean: honor the per-image choice from Sleep Image Selection (absolute paths such as
-  // "/.sleep/foo.bmp"). Fail-safe rules:
-  //   - empty store                   -> rotate through ALL valid images (backward compat)
-  //   - non-empty store               -> rotate only through selected images
-  //   - no selected image exists      -> fall back to ALL, rather than the default screen
-  auto& selection = SleepImageSelectionStore::getInstance();
-  selection.loadFromFile();
   std::string selectedPath;
-  bool found = false;
-  if (!selection.empty()) {
-    found = selectRandomSleepFile("/.sleep", SleepRecentKind::Standard, selectedPath, true) ||
-            selectRandomSleepFile("/sleep", SleepRecentKind::Standard, selectedPath, true);
-  }
-  if (!found && !selectRandomSleepFile("/.sleep", SleepRecentKind::Standard, selectedPath)) {
-    selectRandomSleepFile("/sleep", SleepRecentKind::Standard, selectedPath);
-  }
-
-  if (!selectedPath.empty()) {
+  if (pickSleepFile(selectedPath)) {
     LOG_DBG("SLP", "Randomly loading: %s", selectedPath.c_str());
     delay(100);
     if (renderSleepImagePath(selectedPath)) return;
@@ -747,6 +733,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
         ready = false;
         break;
       }
+      drawPreviewUi();
       if (plane == GfxRenderer::GRAYSCALE_LSB)
         renderer.copyGrayscaleLsbBuffers();
       else
@@ -830,6 +817,7 @@ bool SleepActivity::renderPngSleepImage(const std::string& path, const bool over
     renderer.setRenderMode(GfxRenderer::BW);
     return true;
   }
+  drawPreviewUi();
   renderer.copyGrayscaleLsbBuffers();
 
   if (!absolute) renderer.clearScreen(0x00);
@@ -838,6 +826,7 @@ bool SleepActivity::renderPngSleepImage(const std::string& path, const bool over
     renderer.setRenderMode(GfxRenderer::BW);
     return true;
   }
+  drawPreviewUi();
   renderer.copyGrayscaleMsbBuffers();
 
   renderer.displayGrayBuffer();
@@ -858,20 +847,8 @@ void SleepActivity::renderTransparentCustomSleepScreen() const {
   if (renderSleepOverlayPath(TRANSPARENT_SLEEP_ROOT_BMP)) return;
   if (renderSleepOverlayPath(TRANSPARENT_SLEEP_ROOT_PNG)) return;
 
-  // Korean: Sleep Image Selection lists overlays in Transparent mode; same fail-safe rules as Custom.
-  auto& selection = SleepImageSelectionStore::getInstance();
-  selection.loadFromFile();
   std::string selectedPath;
-  bool found = false;
-  if (!selection.empty()) {
-    found = selectRandomSleepFile(TRANSPARENT_SLEEP_DIR, SleepRecentKind::Overlay, selectedPath, true) ||
-            selectRandomSleepFile(TRANSPARENT_SLEEP_LEGACY_DIR, SleepRecentKind::Overlay, selectedPath, true);
-  }
-  if (!found && !selectRandomSleepFile(TRANSPARENT_SLEEP_DIR, SleepRecentKind::Overlay, selectedPath)) {
-    selectRandomSleepFile(TRANSPARENT_SLEEP_LEGACY_DIR, SleepRecentKind::Overlay, selectedPath);
-  }
-
-  if (!selectedPath.empty() && renderSleepOverlayPath(selectedPath)) return;
+  if (pickSleepFile(selectedPath) && renderSleepOverlayPath(selectedPath)) return;
 
   LOG_ERR("SLP", "No valid transparent sleep overlay found");
   renderDefaultSleepScreen();

@@ -20,14 +20,6 @@
 #include "fontIds.h"
 
 namespace {
-// Probed in priority order; both names are accepted by SleepActivity.
-constexpr const char* const SLEEP_DIRS[] = {"/.sleep", "/sleep"};
-// Transparent mode reads its overlays from separate directories (BMP or PNG).
-constexpr const char* const OVERLAY_DIRS[] = {"/.sleep-overlay", "/sleep-overlay"};
-constexpr size_t DIR_COUNT = 2;
-static_assert(sizeof(SLEEP_DIRS) / sizeof(SLEEP_DIRS[0]) == DIR_COUNT, "dir list size");
-static_assert(sizeof(OVERLAY_DIRS) / sizeof(OVERLAY_DIRS[0]) == DIR_COUNT, "dir list size");
-
 // Top overlay strip — keeps the bottom of the preview clear so the button
 // hints don't fight for space with status text. The strip is intentionally
 // thin and uses an icon (filled/outlined square) for selection state plus a
@@ -51,16 +43,16 @@ void SleepImageSelectionActivity::toggleCurrent() {
   const auto& path = imagePaths[currentIndex];
   SLEEP_IMAGE_SELECTION.setSelected(path, !SLEEP_IMAGE_SELECTION.isSelected(path));
   dirty = true;
+  uiOnly = previewOnScreen;
   requestUpdate();
 }
 
 void SleepImageSelectionActivity::step(const int delta) {
   const int count = static_cast<int>(imagePaths.size());
   currentIndex = (currentIndex + delta + count) % count;
+  uiOnly = false;
   requestUpdate();
 }
-
-const char* const* SleepImageSelectionActivity::scanDirList() const { return overlayMode ? OVERLAY_DIRS : SLEEP_DIRS; }
 
 void SleepImageSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -72,7 +64,7 @@ void SleepImageSelectionActivity::onEnter() {
   // (rather than at sleep time) so the user sees an accurate selection state
   // immediately and we don't keep stale paths alive longer than needed.
   std::set<std::string> existing(imagePaths.begin(), imagePaths.end());
-  if (SLEEP_IMAGE_SELECTION.pruneMissing(existing, scanDirList(), DIR_COUNT)) {
+  if (SLEEP_IMAGE_SELECTION.pruneMissing(existing, SLEEP_IMAGE_DIRS, SLEEP_IMAGE_DIR_COUNT)) {
     dirty = true;
   }
 
@@ -91,9 +83,7 @@ void SleepImageSelectionActivity::scanDirs() {
   imagePaths.clear();
   char nameBuf[256];
 
-  const char* const* dirs = scanDirList();
-  for (size_t d = 0; d < DIR_COUNT; d++) {
-    const char* dirPath = dirs[d];
+  for (const char* dirPath : SLEEP_IMAGE_DIRS) {
     auto dir = Storage.open(dirPath);
     if (!dir || !dir.isDirectory()) {
       continue;
@@ -162,8 +152,12 @@ void SleepImageSelectionActivity::loop() {
     int tapY = 0;
     if (mappedInput.wasScreenTapped(tapX, tapY)) {
       const Rect header = touchHeaderRect();
-      if (tapY >= header.y + header.height) {
+      if (tapY < header.y + header.height) return;
+      // The bottom strip toggles the selection; the image itself pages (right half = next).
+      if (tapY >= renderer.getScreenHeight() - TOUCH_STRIP_HEIGHT) {
         toggleCurrent();
+      } else {
+        step(tapX >= renderer.getScreenWidth() / 2 ? 1 : -1);
       }
       return;
     }
@@ -180,14 +174,22 @@ void SleepImageSelectionActivity::drawUi() const {
   const bool selected = SLEEP_IMAGE_SELECTION.isSelected(path);
   char counter[24];
   snprintf(counter, sizeof(counter), "%d / %u", currentIndex + 1, static_cast<unsigned>(imagePaths.size()));
+  // Differential gray planes: zero bits leave the UI from the B/W pass untouched. Absolute planes
+  // store black/white like the B/W frame, so the UI is drawn normally there.
+  const bool deltaPlane = renderer.getRenderMode() != GfxRenderer::BW && !renderer.grayPlanesAreAbsolute();
 
   if (mappedInput.hasTouch()) {
     const Rect header = touchHeaderRect();
+    const int stripY = pageHeight - TOUCH_STRIP_HEIGHT;
+    if (deltaPlane) {
+      renderer.fillRect(0, 0, pageWidth, header.y + header.height, true);
+      renderer.fillRect(0, stripY, pageWidth, TOUCH_STRIP_HEIGHT, true);
+      return;
+    }
     renderer.fillRect(0, 0, pageWidth, header.y + header.height, false);
     GUI.drawHeader(renderer, header, tr(STR_SELECT_SLEEP_SCREENS), counter);
 
-    // Bottom strip: checkbox + label, centered; tapping the preview toggles it.
-    const int stripY = pageHeight - TOUCH_STRIP_HEIGHT;
+    // Bottom strip: checkbox + label, centered; tapping the strip toggles it.
     renderer.fillRect(0, stripY, pageWidth, TOUCH_STRIP_HEIGHT, false);
     renderer.fillRect(0, stripY, pageWidth, 1, true);
     const char* label = tr(STR_SELECTED);
@@ -201,6 +203,13 @@ void SleepImageSelectionActivity::drawUi() const {
     }
     const int labelY = stripY + (TOUCH_STRIP_HEIGHT - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
     renderer.drawText(UI_12_FONT_ID, groupX + TOUCH_ICON_SIZE + TOUCH_ICON_GAP, labelY, label);
+    return;
+  }
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  if (deltaPlane) {
+    renderer.fillRect(0, 0, pageWidth, OVERLAY_HEIGHT, true);
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     return;
   }
 
@@ -223,11 +232,19 @@ void SleepImageSelectionActivity::drawUi() const {
   const int counterX = pageWidth - counterWidth - ICON_MARGIN;
   renderer.drawText(UI_10_FONT_ID, counterX, (OVERLAY_HEIGHT - 14) / 2, counter);
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void SleepImageSelectionActivity::render(RenderLock&&) {
+  if (uiOnly) {
+    // Only the selection changed: the framebuffer still holds the preview's B/W frame, which the
+    // panel uses as its baseline, so a fast refresh updates just the UI pixels and keeps the grays.
+    uiOnly = false;
+    drawUi();
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    return;
+  }
+  previewOnScreen = false;
   renderer.clearScreen();
   const auto pageHeight = renderer.getScreenHeight();
 
@@ -236,8 +253,7 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
       GUI.drawHeader(renderer, touchHeaderRect(), tr(STR_SELECT_SLEEP_SCREENS));
     }
     renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 2 - 10, tr(STR_NO_FILES_FOUND));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20,
-                              overlayMode ? "/.sleep-overlay, /sleep-overlay" : "/.sleep, /sleep");
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20, "/.sleep, /sleep, /.sleep-overlay, /sleep-overlay");
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
@@ -254,10 +270,14 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
   SleepActivity::PreviewUi ui;
   ui.ctx = const_cast<SleepImageSelectionActivity*>(this);
   ui.draw = [](void* ctx) { static_cast<const SleepImageSelectionActivity*>(ctx)->drawUi(); };
-  if (SleepActivity::renderPreview(renderer, mappedInput, path, overlayMode, ui)) return;
+  if (SleepActivity::renderPreview(renderer, mappedInput, path, overlayMode, ui)) {
+    previewOnScreen = true;
+    return;
+  }
 
   LOG_ERR("SIS", "Preview failed: %s", path.c_str());
   renderer.clearScreen();
   drawUi();
   renderer.displayBuffer();
+  previewOnScreen = true;
 }

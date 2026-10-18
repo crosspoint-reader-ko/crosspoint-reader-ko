@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalMemory.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -313,11 +314,10 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  // Use getMaxAllocHeap() (largest contiguous block) instead of getFreeHeap()
-  // (total free): the PNG decoder is a single ~44 KB allocation, so total free
-  // can be misleading on a fragmented heap — the 4× repeated PNG-decoder alloc
-  // failures we saw on ko.17 were exactly this case.
-  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  // Check the largest contiguous block, not total free: the PNG decoder is a single ~44 KB
+  // allocation, so total free misleads on a fragmented heap (ko.17's repeated decoder alloc
+  // failures). The default heap includes PSRAM where malloc can use it (X4 Pro).
+  const size_t maxAlloc = HalMemory::getDefaultHeap().largestBlockBytes;
   if (maxAlloc < MIN_FREE_HEAP_FOR_PNG) {
     LOG_ERR("PNG", "Not enough contiguous heap for PNG decoder (maxAlloc %u, need %u)", maxAlloc,
             MIN_FREE_HEAP_FOR_PNG);
@@ -346,11 +346,10 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
                                                     const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
 
-  // Use getMaxAllocHeap() (largest contiguous block) instead of getFreeHeap()
-  // (total free): the PNG decoder is a single ~44 KB allocation, so total free
-  // can be misleading on a fragmented heap — the 4× repeated PNG-decoder alloc
-  // failures we saw on ko.17 were exactly this case.
-  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  // Check the largest contiguous block, not total free: the PNG decoder is a single ~44 KB
+  // allocation, so total free misleads on a fragmented heap (ko.17's repeated decoder alloc
+  // failures). The default heap includes PSRAM where malloc can use it (X4 Pro).
+  const size_t maxAlloc = HalMemory::getDefaultHeap().largestBlockBytes;
   if (maxAlloc < MIN_FREE_HEAP_FOR_PNG) {
     LOG_ERR("PNG", "Not enough contiguous heap for PNG decoder (maxAlloc %u, need %u)", maxAlloc,
             MIN_FREE_HEAP_FOR_PNG);

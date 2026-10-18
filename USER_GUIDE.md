@@ -35,7 +35,7 @@ Welcome to the **CrossPoint** firmware. This guide outlines the hardware control
         - [Syncing While Reading](#syncing-while-reading)
     - [3.7 Sleep Screen](#37-sleep-screen)
       - [Cover settings](#cover-settings)
-      - [Custom images](#custom-images)
+      - [Sleep images](#sleep-images)
     - [3.8 Custom Fonts (SD Card)](#38-custom-fonts-sd-card)
   - [4. Reading Mode](#4-reading-mode)
     - [Page Turning](#page-turning)
@@ -533,10 +533,10 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | **Dark** (default) | The CrossPoint logo on a dark background.                                                                                    |
 | **Light**          | The CrossPoint logo on a white background.                                                                                   |
-| **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                             |
+| **Custom**         | A sleep image from the SD card (see below). Falls back to **Dark** if no custom image is found.                             |
 | **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                             |
 | **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading. |
-| **Transparent**    | A BMP or PNG overlay drawn over the current screen. Supports PNG and 32-bit BGRA alpha transparency, and treats white as transparent in regular BMPs. Falls back to **Dark** if no valid overlay image is found. |
+| **Transparent**    | A sleep image (see below) drawn over the current screen. Supports PNG and 32-bit BGRA alpha transparency, and treats white as transparent in regular BMPs. Falls back to **Dark** if no valid overlay image is found. |
 | **None**           | A blank screen.                                                                                                              |
 
 #### Cover settings
@@ -546,23 +546,16 @@ When using **Cover** or **Cover + Custom**, two additional settings apply:
 - **Sleep Screen Cover Mode**: **Fit** (scale to fit, white borders) or **Crop** (scale and crop to fill the screen).
 - **Sleep Screen Cover Filter**: **None** (grayscale), **Contrast** (black & white), or **Inverted** (inverted black & white).
 
-#### Custom images
+#### Sleep images
 
-To use custom sleep images, set the sleep screen mode to **Custom** or **Cover + Custom**, then place images on the SD card:
+**Custom**, **Cover + Custom** and **Transparent** draw from the same images on the SD card. The mode only decides how an image is drawn: **Custom** replaces the screen with it, **Transparent** draws it over the current page.
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` (or `sleep.png`) in the root directory. This takes priority over the `.sleep`/`sleep` directories.
+- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. Directories named `sleep`, `.sleep-overlay` and `sleep-overlay` are read too; images from all of them form one list.
+- **Single Image:** Place `sleep.bmp` (or `sleep.png`) in the root directory for **Custom**, or `sleep-overlay.bmp` (or `sleep-overlay.png`) for **Transparent**. A single image takes priority over the directories.
 
-#### Transparent overlay images
+**Select Sleep Screens** (Display settings) lists every image in those directories and keeps one selection for all modes. If any selected image is on the card, only selected images are used; otherwise every image is. Each image is previewed with the sleep screen's own renderer for the current mode, including cover mode, filter and grays (in **Transparent**, over a blank page), so it looks as it will when the device sleeps.
 
-To use transparent sleep overlays, set the sleep screen mode to **Transparent**, then place BMP or PNG files on the SD card:
-
-- **Multiple Images (recommended):** Create a `.sleep-overlay` directory in the root of the SD card and place any number of valid overlay `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. A directory named `sleep-overlay` is also accepted as a fallback.
-- **Single Image:** Place `sleep-overlay.bmp` or `sleep-overlay.png` in the root directory. A root BMP takes priority over a root PNG, and both take priority over the `.sleep-overlay`/`sleep-overlay` directories.
-
-**Select Sleep Screens** (Display settings) follows the current sleep screen mode: in **Transparent** it lists the overlays in `.sleep-overlay`/`sleep-overlay`, in every other mode the images in `.sleep`/`sleep` (BMP and PNG in both). Each image is previewed with the sleep screen's own renderer, including cover mode, filter and grays, so it looks as it will when the device sleeps. The two selections are kept separately. If nothing is selected for a mode, every image in its directories is used.
-
-Transparent overlay files are intentionally separate from normal sleep images. Regular BMP formats supported by CrossPoint are accepted; white pixels leave the existing screen unchanged. For per-pixel alpha transparency, use a PNG with an alpha channel or a 32-bit BGRA BMP with both visible and non-opaque pixels. Opaque white pixels in alpha images erase the content behind them.
+In **Transparent**, the page shows through transparent pixels only. Regular BMP formats supported by CrossPoint are accepted; white pixels leave the existing screen unchanged. For per-pixel alpha transparency, use a PNG with an alpha channel or a 32-bit BGRA BMP with both visible and non-opaque pixels. Opaque pixels, including opaque white in alpha images, cover the content behind them.
 
 > [!TIP]
 > For best results:
