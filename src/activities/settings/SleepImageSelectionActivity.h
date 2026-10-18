@@ -11,8 +11,9 @@ struct Rect;
 
 // Browse and toggle which images are eligible for the random sleep-screen
 // rotation. Follows the current sleep screen mode: Transparent lists the
-// overlays (BMP/PNG) in /.sleep-overlay and /sleep-overlay; every other mode
-// lists the BMPs in /.sleep and /sleep. Persists via SleepImageSelectionStore.
+// overlays in /.sleep-overlay and /sleep-overlay; every other mode lists the
+// images in /.sleep and /sleep. BMP and PNG both count. Persists via
+// SleepImageSelectionStore.
 //
 // UX:
 //   - Up / Down / Left / Right : navigate previous / next image
@@ -21,10 +22,10 @@ struct Rect;
 //   Touch boards: swipe left/right to change image, tap the preview to
 //   toggle, header back arrow (or edge swipe) to exit.
 //
-// Each image is rendered full-screen using the same path as SleepActivity
-// (Bitmap + GfxRenderer), with a small overlay strip for filename and the
-// selected indicator so what the user sees here is what they will see at
-// sleep time.
+// Each image is rendered full-screen by SleepActivity's own renderers
+// (placement, cover mode/filter, grays), with a small overlay strip for the
+// counter and the selected indicator, so what the user sees here is what
+// they will see at sleep time.
 class SleepImageSelectionActivity final : public Activity {
  public:
   explicit SleepImageSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -41,7 +42,8 @@ class SleepImageSelectionActivity final : public Activity {
   // of the saved selection.
   void scanDirs();
   const char* const* scanDirList() const;
-  void renderPngPreview(const std::string& path, int previewY, int previewHeight) const;
+  // Picker UI (strip, counter, hints) drawn over the preview image.
+  void drawUi() const;
   void toggleCurrent();
   void step(int delta);
   // Touch layout: titled header (back arrow) on top, selection strip at the

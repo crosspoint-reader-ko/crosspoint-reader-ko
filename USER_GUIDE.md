@@ -550,8 +550,8 @@ When using **Cover** or **Cover + Custom**, two additional settings apply:
 
 To use custom sleep images, set the sleep screen mode to **Custom** or **Cover + Custom**, then place images on the SD card:
 
-- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
-- **Single Image:** Place a file named `sleep.bmp` in the root directory. This takes priority over the `.sleep`/`sleep` directories.
+- **Multiple Images (recommended):** Create a `.sleep` directory in the root of the SD card and place any number of `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. (A directory named `sleep` is also accepted as a fallback.)
+- **Single Image:** Place a file named `sleep.bmp` (or `sleep.png`) in the root directory. This takes priority over the `.sleep`/`sleep` directories.
 
 #### Transparent overlay images
 
@@ -560,13 +560,13 @@ To use transparent sleep overlays, set the sleep screen mode to **Transparent**,
 - **Multiple Images (recommended):** Create a `.sleep-overlay` directory in the root of the SD card and place any number of valid overlay `.bmp` or `.png` images inside. One will be randomly selected each time the device sleeps. A directory named `sleep-overlay` is also accepted as a fallback.
 - **Single Image:** Place `sleep-overlay.bmp` or `sleep-overlay.png` in the root directory. A root BMP takes priority over a root PNG, and both take priority over the `.sleep-overlay`/`sleep-overlay` directories.
 
-**Select Sleep Screens** (Display settings) follows the current sleep screen mode: in **Transparent** it lists the overlays in `.sleep-overlay`/`sleep-overlay` (BMP and PNG), in every other mode the BMPs in `.sleep`/`sleep`. The two selections are kept separately. If nothing is selected for a mode, every image in its directories is used.
+**Select Sleep Screens** (Display settings) follows the current sleep screen mode: in **Transparent** it lists the overlays in `.sleep-overlay`/`sleep-overlay`, in every other mode the images in `.sleep`/`sleep` (BMP and PNG in both). Each image is previewed with the sleep screen's own renderer, including cover mode, filter and grays, so it looks as it will when the device sleeps. The two selections are kept separately. If nothing is selected for a mode, every image in its directories is used.
 
 Transparent overlay files are intentionally separate from normal sleep images. Regular BMP formats supported by CrossPoint are accepted; white pixels leave the existing screen unchanged. For per-pixel alpha transparency, use a PNG with an alpha channel or a 32-bit BGRA BMP with both visible and non-opaque pixels. Opaque white pixels in alpha images erase the content behind them.
 
 > [!TIP]
 > For best results:
-> - For non-transparent **Custom** mode, use uncompressed BMP files with 24-bit color depth.
+> - For non-transparent **Custom** mode, use uncompressed 24-bit BMP or PNG files.
 > - For **Transparent** mode, use a PNG or uncompressed 32-bit BGRA BMP for per-pixel alpha, or a regular BMP for white-as-transparent artwork.
 > - X4: Use a resolution of 480x800 pixels to match the device's screen resolution.
 > - X3: Use a resolution of 528x792 pixels to match the device's screen resolution.

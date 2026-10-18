@@ -15,6 +15,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SleepImageSelectionStore.h"
+#include "activities/boot_sleep/SleepActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -102,7 +103,7 @@ void SleepImageSelectionActivity::scanDirs() {
       file.getName(nameBuf, sizeof(nameBuf));
       std::string fname = nameBuf;
       if (fname.empty() || fname[0] == '.') continue;
-      if (overlayMode && FsHelpers::hasPngExtension(fname)) {
+      if (FsHelpers::hasPngExtension(fname)) {
         std::string fullPath = std::string(dirPath) + "/" + fname;
         ImageDimensions dims{};
         if (!PngToFramebufferConverter::getDimensionsStatic(fullPath, dims)) {
@@ -172,91 +173,17 @@ void SleepImageSelectionActivity::loop() {
   buttonNavigator.onPreviousRelease([this] { step(-1); });
 }
 
-void SleepImageSelectionActivity::renderPngPreview(const std::string& path, const int previewY,
-                                                   const int previewHeight) const {
-  ImageDimensions dims{};
-  if (!PngToFramebufferConverter::getDimensionsStatic(path, dims) || dims.width <= 0 || dims.height <= 0) {
-    LOG_ERR("SIS", "PNG header failed: %s", path.c_str());
-    return;
-  }
-  // The decoder needs a large contiguous block; SD font glyph caches are rebuilt on demand.
-  if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
-
-  const int pageWidth = renderer.getScreenWidth();
-  const float scale =
-      std::min({1.0f, static_cast<float>(pageWidth) / dims.width, static_cast<float>(previewHeight) / dims.height});
-  RenderConfig config;
-  config.x = (pageWidth - static_cast<int>(dims.width * scale)) / 2;
-  config.y = previewY + (previewHeight - static_cast<int>(dims.height * scale)) / 2;
-  config.maxWidth = pageWidth;
-  config.maxHeight = previewHeight;
-  config.preserveAlpha = true;
-  PngToFramebufferConverter converter;
-  if (!converter.decodeToFramebuffer(path, renderer, config)) {
-    LOG_ERR("SIS", "PNG preview failed: %s", path.c_str());
-  }
-}
-
-void SleepImageSelectionActivity::render(RenderLock&&) {
-  renderer.clearScreen();
+void SleepImageSelectionActivity::drawUi() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
-  const bool touch = mappedInput.hasTouch();
-
-  if (imagePaths.empty()) {
-    if (touch) {
-      GUI.drawHeader(renderer, touchHeaderRect(), tr(STR_SELECT_SLEEP_SCREENS));
-    }
-    renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 2 - 10, tr(STR_NO_FILES_FOUND));
-    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20,
-                              overlayMode ? "/.sleep-overlay, /sleep-overlay" : "/.sleep, /sleep");
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
-    return;
-  }
-
-  // Top strip reserves a thin band for the position counter + selected
-  // icon. Keeps the bottom of the screen clear so the button hints don't
-  // collide with status text (which was getting clipped before).
-  int previewY = OVERLAY_HEIGHT;
-  int previewHeight = pageHeight - OVERLAY_HEIGHT;
-  Rect header{};
-  if (touch) {
-    header = touchHeaderRect();
-    previewY = header.y + header.height;
-    previewHeight = pageHeight - previewY - TOUCH_STRIP_HEIGHT;
-  }
-
   const auto& path = imagePaths[currentIndex];
-  if (FsHelpers::hasPngExtension(path)) {
-    renderPngPreview(path, previewY, previewHeight);
-  } else if (HalFile file; !Storage.openFileForRead("SIS", path, file)) {
-    LOG_ERR("SIS", "Failed to open %s", path.c_str());
-  } else {
-    Bitmap bitmap(file, true);
-    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      // Fit-style placement (no crop) inside the preview area, offset down
-      // by the overlay height so the image lives strictly under the strip.
-      int x = 0;
-      int y = previewY;
-      const float bmpRatio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
-      const float screenRatio = static_cast<float>(pageWidth) / static_cast<float>(previewHeight);
-      if (bmpRatio > screenRatio) {
-        y = previewY + std::round((previewHeight - pageWidth / bmpRatio) / 2);
-      } else {
-        x = std::round((pageWidth - previewHeight * bmpRatio) / 2);
-      }
-      renderer.drawBitmap(bitmap, x, y, pageWidth, previewHeight, 0, 0);
-    } else {
-      LOG_ERR("SIS", "Header parse failed: %s", path.c_str());
-    }
-  }
-
   const bool selected = SLEEP_IMAGE_SELECTION.isSelected(path);
-  if (touch) {
-    char counter[24];
-    snprintf(counter, sizeof(counter), "%d / %u", currentIndex + 1, static_cast<unsigned>(imagePaths.size()));
+  char counter[24];
+  snprintf(counter, sizeof(counter), "%d / %u", currentIndex + 1, static_cast<unsigned>(imagePaths.size()));
+
+  if (mappedInput.hasTouch()) {
+    const Rect header = touchHeaderRect();
+    renderer.fillRect(0, 0, pageWidth, header.y + header.height, false);
     GUI.drawHeader(renderer, header, tr(STR_SELECT_SLEEP_SCREENS), counter);
 
     // Bottom strip: checkbox + label, centered; tapping the preview toggles it.
@@ -274,12 +201,10 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
     }
     const int labelY = stripY + (TOUCH_STRIP_HEIGHT - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
     renderer.drawText(UI_12_FONT_ID, groupX + TOUCH_ICON_SIZE + TOUCH_ICON_GAP, labelY, label);
-
-    renderer.displayBuffer();
     return;
   }
 
-  // Top overlay: white background + 1px bottom separator.
+  // Top strip: white background + 1px bottom separator, drawn over the image.
   renderer.fillRect(0, 0, pageWidth, OVERLAY_HEIGHT, false);
   renderer.fillRect(0, OVERLAY_HEIGHT - 1, pageWidth, 1, true);
 
@@ -294,14 +219,45 @@ void SleepImageSelectionActivity::render(RenderLock&&) {
   }
 
   // Position counter (right edge): "i / N" — no filename, by request.
-  char counter[24];
-  snprintf(counter, sizeof(counter), "%d / %u", currentIndex + 1, static_cast<unsigned>(imagePaths.size()));
   const int counterWidth = renderer.getTextWidth(UI_10_FONT_ID, counter);
   const int counterX = pageWidth - counterWidth - ICON_MARGIN;
   renderer.drawText(UI_10_FONT_ID, counterX, (OVERLAY_HEIGHT - 14) / 2, counter);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
 
+void SleepImageSelectionActivity::render(RenderLock&&) {
+  renderer.clearScreen();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  if (imagePaths.empty()) {
+    if (mappedInput.hasTouch()) {
+      GUI.drawHeader(renderer, touchHeaderRect(), tr(STR_SELECT_SLEEP_SCREENS));
+    }
+    renderer.drawCenteredText(UI_12_FONT_ID, pageHeight / 2 - 10, tr(STR_NO_FILES_FOUND));
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 20,
+                              overlayMode ? "/.sleep-overlay, /sleep-overlay" : "/.sleep, /sleep");
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  // The image is drawn full screen by the sleep screen's own renderer (placement, cover
+  // mode/filter, grays), so the preview matches what sleep shows; the UI sits on top.
+  const auto& path = imagePaths[currentIndex];
+  if (FsHelpers::hasPngExtension(path)) {
+    // The PNG decoder needs a large contiguous block; SD font glyph caches are rebuilt on demand.
+    if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+  }
+  SleepActivity::PreviewUi ui;
+  ui.ctx = const_cast<SleepImageSelectionActivity*>(this);
+  ui.draw = [](void* ctx) { static_cast<const SleepImageSelectionActivity*>(ctx)->drawUi(); };
+  if (SleepActivity::renderPreview(renderer, mappedInput, path, overlayMode, ui)) return;
+
+  LOG_ERR("SIS", "Preview failed: %s", path.c_str());
+  renderer.clearScreen();
+  drawUi();
   renderer.displayBuffer();
 }
