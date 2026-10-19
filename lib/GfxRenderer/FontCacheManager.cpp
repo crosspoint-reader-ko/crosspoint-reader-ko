@@ -2,6 +2,7 @@
 
 #include <FontDecompressor.h>
 #include <Logging.h>
+#include <SdFont.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -38,10 +39,11 @@ void FontCacheManager::clearCache() {
   if (fontDecompressor_) fontDecompressor_->clearCache();
 }
 
-// The Korean build has no upstream .cpfont/TTF SD fonts. Its SdFontFamily (.epdfont) keeps
-// glyph data resident for the font's lifetime, so only the flash decompressor cache is rebuildable.
+// Both caches refill on the next draw: the flash decompressor's groups and the SD .epdfont glyph
+// bitmaps (SdFontData's shared LRU, up to 32 KB in many small blocks that split the heap).
 void FontCacheManager::releaseSdFontCaches() {
   if (fontDecompressor_) fontDecompressor_->clearCache();
+  SdFontData::clearCache();
 }
 
 void FontCacheManager::prewarmCache(int fontId, const char* utf8Text, uint8_t styleMask, bool /*accumulate*/) {

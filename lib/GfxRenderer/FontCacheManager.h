@@ -17,8 +17,8 @@ class FontCacheManager {
   void setFontDecompressor(FontDecompressor* d);
 
   void clearCache();
-  // Release every rebuildable font cache while keeping the fonts loaded. In the Korean build
-  // that is only the flash decompressor cache: SD .epdfont families keep their glyphs resident.
+  // Release every rebuildable font cache while keeping the fonts loaded: the flash decompressor
+  // cache and the SD .epdfont glyph bitmap cache.
   // Kept under upstream's name so heap-critical call sites (web server, image decode,
   // dictionary, sleep) stay unchanged.
   void releaseSdFontCaches();

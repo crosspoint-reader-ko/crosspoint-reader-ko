@@ -334,7 +334,11 @@ bleturner::Heap heap() {
 bool releaseCaches() {
   RenderLock lock(RenderLock::Mode::Try);
   if (!lock.ownsLock()) return false;
+  const size_t sdGlyphBytes = SdFontData::getCacheUsedSize();
   fontCacheManager.releaseSdFontCaches();
+  const auto h = HalMemory::getInternalHeap();
+  LOG_INF("BLE", "Font caches released (SD glyphs %zu B): free=%zu largest=%zu", sdGlyphBytes, h.freeBytes,
+          h.largestBlockBytes);
   return true;
 }
 
