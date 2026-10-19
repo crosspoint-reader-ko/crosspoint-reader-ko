@@ -73,9 +73,10 @@ bool popKey(KeyPress& out) {
   return true;
 }
 
-// The SDK reconnects one selected remote, so the pick policy cannot ask for "the first bonded
-// remote to come up": the chosen remote is armed, and nothing when none is chosen.
-bool armBondedReconnect(uint8_t, const char* priorityAddr) {
+// pick 1 ("the first remote to come up"): no plan, so the SDK's auto-reconnect tries every bond in
+// turn. pick 0: only the chosen remote is armed (the SDK's selected plan never tries another bond).
+bool armBondedReconnect(const uint8_t pick, const char* priorityAddr) {
+  if (pick != 0) return false;
   return priorityAddr != nullptr && priorityAddr[0] != '\0' && hid().armSelectedPeerReconnect(priorityAddr);
 }
 Peer linked() { return peerOf(hid().connectedAddr(), hid().connectedName()); }
