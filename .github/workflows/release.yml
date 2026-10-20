@@ -17,8 +17,9 @@ name: Compile Release
 #   CrossPoint-<tag>.bin               - merged image under the pre-1.6.5 name (web flasher)
 #   bootloader.bin, partitions.bin
 # Fonts:
-#   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul, Hanja, Greek, kana and the KS X 1001
-#                                        symbols the font has), the built-in reader font up
+#   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul, Hanja, kana and the KS X 1001 symbols
+#                                        the font has; accented and polytonic Greek it lacks come from
+#                                        Noto Serif), the built-in reader font up
 #                                        to 1.6.5-ko.3. Copy to /fonts on the SD card and pick it in
 #                                        Settings > Reader font.
 
@@ -185,10 +186,12 @@ jobs:
         pip install "freetype-py>=2.5.1"
         cd lib/EpdFont/scripts
         python ttf_to_epdfont.py kopub_14_regular 14 \
-          "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" --2bit \
+          "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" \
+          ../builtinFonts/source/NotoSerif/NotoSerif-Regular.ttf --2bit \
           --additional-intervals 0x02B0,0x02FF \
           --additional-intervals 0x0370,0x03FF \
           --additional-intervals 0x1100,0x11FF \
+          --additional-intervals 0x1F00,0x1FFF \
           --additional-intervals 0x2070,0x209F \
           --additional-intervals 0x2100,0x218F \
           --additional-intervals 0x2300,0x23FF \
