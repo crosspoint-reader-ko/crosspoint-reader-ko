@@ -17,7 +17,8 @@ name: Compile Release
 #   CrossPoint-<tag>.bin               - merged image under the pre-1.6.5 name (web flasher)
 #   bootloader.bin, partitions.bin
 # Fonts:
-#   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul + Hanja), the built-in reader font up
+#   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul, Hanja, Greek, kana and the KS X 1001
+#                                        symbols the font has), the built-in reader font up
 #                                        to 1.6.5-ko.3. Copy to /fonts on the SD card and pick it in
 #                                        Settings > Reader font.
 
@@ -185,8 +186,19 @@ jobs:
         cd lib/EpdFont/scripts
         python ttf_to_epdfont.py kopub_14_regular 14 \
           "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" --2bit \
+          --additional-intervals 0x02B0,0x02FF \
+          --additional-intervals 0x0370,0x03FF \
           --additional-intervals 0x1100,0x11FF \
+          --additional-intervals 0x2070,0x209F \
+          --additional-intervals 0x2100,0x218F \
+          --additional-intervals 0x2300,0x23FF \
+          --additional-intervals 0x2460,0x24FF \
+          --additional-intervals 0x2500,0x257F \
+          --additional-intervals 0x25A0,0x27BF \
           --additional-intervals 0x3000,0x303F \
+          --additional-intervals 0x3040,0x30FF \
+          --additional-intervals 0x3200,0x33FF \
+          --additional-intervals 0xFF00,0xFFEF \
           --additional-intervals 0x3130,0x318F \
           --additional-intervals 0x4E00,0x9FFF \
           --additional-intervals 0xAC00,0xD7A3 \
