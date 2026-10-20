@@ -202,6 +202,10 @@ class EpubReaderActivity final : public ReaderActivity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
+  // Redraws only the status bar over the page in the framebuffer and pushes a FAST differential,
+  // so the rest of the page (an image's grayscale included) is not driven again. False when the
+  // framebuffer does not hold the bare page (an overlay is up); the caller then repaints it all.
+  bool repaintStatusBar();
   void applyOrientation(uint8_t orientation);
   void applyInitialOrientation() override;
   // The orientation the current layout was built for. The control center's

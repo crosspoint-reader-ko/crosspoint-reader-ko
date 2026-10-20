@@ -524,10 +524,10 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  // The remote linked, or failed to, after the status bar showed its note: paint the page again.
+  // The remote linked, or failed to, after the status bar showed its note: paint the status bar again.
   {
     RenderLock lock(RenderLock::Mode::Try);
-    if (lock.ownsLock() && linkNoteTitle.repaint(bleturner::linkNote())) requestUpdate();
+    if (lock.ownsLock() && linkNoteTitle.repaint(bleturner::linkNote()) && !repaintStatusBar()) requestUpdate();
   }
 
   // Someone else turned the screen while this reader was stacked (the control
@@ -2065,6 +2065,20 @@ void EpubReaderActivity::renderStatusBar() const {
 
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
                     section ? section->isBuilding() : false);
+}
+
+bool EpubReaderActivity::repaintStatusBar() {
+  if (!section || overlay != Overlay::None || overlayPopup.isActive()) return false;
+  settleOverlayRefresh();
+  int marginTop, marginRight, marginBottom, marginLeft;
+  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
+  // drawStatusBar does not clear behind itself: blank its band (text row and progress bar) first,
+  // from the text row it places 4 px above the reserved height down to the panel edge.
+  const int top = renderer.getScreenHeight() - UITheme::getStatusBarHeight() - marginBottom - 4;
+  renderer.fillRect(0, top, renderer.getScreenWidth(), renderer.getScreenHeight() - top, false);
+  renderStatusBar();
+  pushOverlayRefresh();
+  return true;
 }
 
 // ---------------------------------------------------------------------------
