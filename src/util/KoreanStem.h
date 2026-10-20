@@ -9,9 +9,9 @@
 // lookup should try them, most likely first, and most will not be headwords.
 //
 // Order: the word's Hangul alone (edge punctuation dropped), then the word with a particle removed
-// when at least two syllables are left, then 다 forms of each shorter stem (with contracted vowels,
-// 하다 and the ㅂ/르/ㅎ/ㄷ irregulars restored), then a one-syllable noun before a particle, then
-// plain prefixes. Words with no Hangul give nothing. At most kMaxKoreanVariants candidates.
+// when at least two syllables are left, then stems from the longest down, each as its 다 form (with
+// contracted vowels, 하다 and the ㅂ/르/ㅎ/ㄷ irregulars restored) and then as a plain noun, and last
+// a one-syllable noun. Words with no Hangul give nothing. At most kMaxKoreanVariants candidates.
 namespace koreanstem {
 
 inline constexpr size_t kMaxKoreanVariants = 24;

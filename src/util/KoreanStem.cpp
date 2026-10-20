@@ -11,20 +11,20 @@ constexpr char32_t kFirstSyllable = 0xAC00;
 constexpr char32_t kLastSyllable = 0xD7A3;
 
 // Jongseong (final consonant) indexes, 0 = none.
-constexpr int kFinalN = 4;   // ㄴ
-constexpr int kFinalD = 7;   // ㄷ
-constexpr int kFinalL = 8;   // ㄹ
-constexpr int kFinalM = 16;  // ㅁ
-constexpr int kFinalB = 17;  // ㅂ
+constexpr int kFinalN = 4;    // ㄴ
+constexpr int kFinalD = 7;    // ㄷ
+constexpr int kFinalL = 8;    // ㄹ
+constexpr int kFinalM = 16;   // ㅁ
+constexpr int kFinalB = 17;   // ㅂ
 constexpr int kFinalSS = 20;  // ㅆ
 constexpr int kFinalH = 27;   // ㅎ
 // Jungseong (vowel) indexes.
-constexpr int kVowelA = 0;    // ㅏ
-constexpr int kVowelAe = 1;   // ㅐ
-constexpr int kVowelEo = 4;   // ㅓ
-constexpr int kVowelYeo = 6;  // ㅕ
-constexpr int kVowelO = 8;    // ㅗ
-constexpr int kVowelWa = 9;   // ㅘ
+constexpr int kVowelA = 0;     // ㅏ
+constexpr int kVowelAe = 1;    // ㅐ
+constexpr int kVowelEo = 4;    // ㅓ
+constexpr int kVowelYeo = 6;   // ㅕ
+constexpr int kVowelO = 8;     // ㅗ
+constexpr int kVowelWa = 9;    // ㅘ
 constexpr int kVowelWae = 10;  // ㅙ
 constexpr int kVowelOe = 11;   // ㅚ
 constexpr int kVowelU = 13;    // ㅜ
@@ -35,6 +35,8 @@ constexpr int kVowelI = 20;    // ㅣ
 constexpr int kInitialIeung = 11;  // ㅇ
 constexpr int kInitialH = 18;      // ㅎ
 constexpr int kInitialR = 5;       // ㄹ
+constexpr int kInitialN = 2;       // ㄴ
+constexpr char32_t kSyllableDa = U'다';
 
 bool isSyllable(const char32_t c) { return c >= kFirstSyllable && c <= kLastSyllable; }
 int initialOf(const char32_t c) { return static_cast<int>((c - kFirstSyllable) / (21 * 28)); }
@@ -98,10 +100,17 @@ std::string utf8(const std::u32string& s, const size_t count) {
 
 // Particles, longest first so 에서는 is tried before 는. Stored as UTF-8.
 constexpr const char* kParticles[] = {
-    "에서부터", "으로부터", "에게서", "으로서", "으로써", "이라도", "까지는", "에서는", "에게는", "으로는",
-    "에서도", "부터", "까지", "에게", "한테", "께서", "에서", "으로", "처럼", "보다", "마저", "조차",
-    "이나", "이랑", "이란", "하고", "에는", "에도", "와", "과", "을", "를", "이", "가", "은", "는",
-    "의", "에", "도", "만", "로", "랑", "나"};
+    "에서부터", "으로부터", "에게서", "으로서", "으로써", "이라도", "까지는", "에서는", "에게는", "으로는", "에서도",
+    "부터",     "까지",     "에게",   "한테",   "께서",   "에서",   "으로",   "처럼",   "보다",   "마저",   "조차",
+    "이나",     "이랑",     "이란",   "하고",   "에는",   "에도",   "와",     "과",     "을",     "를",     "이",
+    "가",       "은",       "는",     "의",     "에",     "도",     "만",     "로",     "랑",     "나"};
+
+// Particles that are also verb endings (먹은, 먹을, 먹는, 가나, 선하고): a one-syllable stem before
+// them is more likely a verb.
+bool endsLikeVerb(const char* particle) {
+  return strcmp(particle, "은") == 0 || strcmp(particle, "는") == 0 || strcmp(particle, "을") == 0 ||
+         strcmp(particle, "를") == 0 || strcmp(particle, "나") == 0 || strcmp(particle, "하고") == 0;
+}
 
 // Syllables (UTF-8) that follow an ㅂ-irregular stem whose ㅂ dropped: 아름다운, 고마워, 더웠다.
 bool followsBIrregular(const char32_t next) {
@@ -150,9 +159,15 @@ void addVerbForms(Collector& c, const std::u32string& run, const size_t k) {
     c.addStem(r);
   }
 
-  // The whole word as a stem only through its final consonant (간 -> 가다, 파란 -> 파랗다): the
-  // word plus 다 is never a better guess than the word itself.
-  if (k < run.size()) c.addStem(stem);  // 먹(었다) -> 먹다
+  // ㅂ irregular first: 누(웠을) is 눕다 before 누다, 아름다(운) is 아름답다, 고마(워) is 고맙다.
+  if (final == 0 && next != 0 && followsBIrregular(next)) {
+    std::u32string b = stem;
+    b.back() = withFinal(last, kFinalB);
+    c.addStem(b);
+  }
+
+  // The whole word is a stem when it ends in a vowel (떠나 -> 떠나다), never when it ends in 다.
+  if (k < run.size() || (final == 0 && last != kSyllableDa)) c.addStem(stem);  // 먹(었다) -> 먹다
 
   // A final ㄴ/ㄹ/ㅁ/ㅂ/ㅆ that is an ending, not the stem's: 간다, 할, 함, 갑니다, 갔다 -> 가다.
   if (final == kFinalN || final == kFinalL || final == kFinalM || final == kFinalB || final == kFinalSS) {
@@ -173,6 +188,12 @@ void addVerbForms(Collector& c, const std::u32string& run, const size_t k) {
         c.addStem(bare);
       }
     }
+    // A stem's ㄹ drops before ㄴ and ㅂ: 드문 -> 드물다, 듭니다 -> 들다.
+    if (final == kFinalN || final == kFinalB) {
+      std::u32string l = stem;
+      l.back() = withFinal(last, kFinalL);
+      c.addStem(l);
+    }
     // ㅎ irregular: 파란, 그런 -> 파랗다, 그렇다.
     if (final == kFinalN && k == run.size()) {
       std::u32string h = stem;
@@ -192,11 +213,17 @@ void addVerbForms(Collector& c, const std::u32string& run, const size_t k) {
       v.back() = withVowel(last, original);
       c.addStem(v);
     }
-    // ㅂ irregular: 아름다(운) -> 아름답다, 고마(워) -> 고맙다.
-    if (next != 0 && followsBIrregular(next)) {
-      std::u32string b = stem;
-      b.back() = withFinal(last, kFinalB);
-      c.addStem(b);
+    // ㅡ dropped before 어/아: 떠 -> 뜨다, 아파 -> 아프다.
+    if (vowel == kVowelEo || vowel == kVowelA) {
+      std::u32string eu = stem;
+      eu.back() = withVowel(last, kVowelEu);
+      c.addStem(eu);
+    }
+    // A stem's ㄹ drops before ㄴ: 드(는) -> 들다, 떠(는) -> 떨다.
+    if (next != 0 && initialOf(next) == kInitialN) {
+      std::u32string l = stem;
+      l.back() = withFinal(last, kFinalL);
+      c.addStem(l);
     }
   }
 
@@ -220,7 +247,9 @@ void variants(const std::string& word, std::vector<std::string>& out) {
 
   c.add(whole);
 
-  // Remainders before a particle (and before a plural 들), most syllables first.
+  // Remainders before a particle (and before a plural 들), most syllables first. A one-syllable
+  // remainder waits behind the verb forms (먹은 is 먹다, not 먹), except before a particle that is
+  // no verb ending (날이 is 날, not 날다).
   std::vector<std::string> nouns;
   for (const char* particle : kParticles) {
     const size_t plen = strlen(particle);
@@ -228,17 +257,27 @@ void variants(const std::string& word, std::vector<std::string>& out) {
     std::string noun = whole.substr(0, whole.size() - plen);
     nouns.push_back(noun);
     static constexpr char kPlural[] = "\xEB\x93\xA4";  // 들
-    if (noun.size() > 3 && noun.compare(noun.size() - 3, 3, kPlural) == 0) nouns.push_back(noun.substr(0, noun.size() - 3));
+    if (noun.size() > 3 && noun.compare(noun.size() - 3, 3, kPlural) == 0)
+      nouns.push_back(noun.substr(0, noun.size() - 3));
+    if (noun.size() == 3 && !endsLikeVerb(particle)) c.add(noun);
   }
   for (const auto& noun : nouns) {
     if (noun.size() >= 6) c.add(noun);  // two syllables or more
   }
 
-  for (size_t k = run.size(); k >= 1; k--) addVerbForms(c, run, k);
+  // Longer stems first, so 실례(지만) is found before 실다 and 제조업(자들을) before 제다: at each
+  // length the 다 form and the plain prefix as a noun (two syllables or more). The noun goes first
+  // when its final consonant carries over into a vowel (그림이자 is 그림, not 그리다).
+  for (size_t k = run.size(); k >= 1; k--) {
+    const bool noun = k >= 2 && k < run.size();
+    const bool nounFirst = noun && finalOf(run[k - 1]) != 0 && initialOf(run[k]) == kInitialIeung;
+    if (nounFirst) c.add(utf8(run, k));
+    addVerbForms(c, run, k);
+    if (noun && !nounFirst) c.add(utf8(run, k));
+  }
 
   for (const auto& noun : nouns) c.add(noun);  // one-syllable nouns: 물(을)
-
-  for (size_t k = run.size() - 1; k >= 1; k--) c.add(utf8(run, k));
+  c.add(utf8(run, 1));
 }
 
 }  // namespace koreanstem

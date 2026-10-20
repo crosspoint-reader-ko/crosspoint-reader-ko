@@ -65,6 +65,29 @@ TEST(KoreanStem, Irregulars) {
   expectBefore("들어", "듣다");
 }
 
+TEST(KoreanStem, DroppedLieulAndEu) {
+  expectBefore("드문", "드물다");
+  expectBefore("드는", "들다");
+  expectBefore("듭니다", "들다");
+  expectBefore("떠는", "떨다");
+  expectBefore("떠나", "떠나다");
+  expectBefore("떠", "뜨다");
+}
+
+TEST(KoreanStem, LongerStemsBeforeShorterVerbs) {
+  expectBefore("실례지만", "실례", {"실다"});
+  expectBefore("사랑이라고", "사랑", {"사다"});
+  expectBefore("친구였으며", "친구", {"치다"});
+}
+
+TEST(KoreanStem, NounBeforeVerbWhereTheTextSaysSo) {
+  expectBefore("그림이자", "그림", {"그리다"});
+  expectBefore("누웠을", "눕다", {"누다"});
+  expectBefore("날이", "날", {"날다"});
+  expectBefore("먹은", "먹다", {"먹"});
+  expectBefore("선하고", "선하다", {"선"});
+}
+
 TEST(KoreanStem, OneSyllableNounsStillFound) { EXPECT_GE(rankOf("물을", "물"), 0); }
 
 TEST(KoreanStem, PunctuationAroundTheWord) {
