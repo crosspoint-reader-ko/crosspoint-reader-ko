@@ -43,7 +43,8 @@ On the very first lookup with a dictionary (and again whenever the `.idx` or `.s
 1. **Direct match** — the word is found as-is (case-insensitive) in the dictionary index. Surrounding punctuation is ignored.
 2. **Synonyms** — on a miss, if the dictionary ships a `.syn` file, alternate spellings and irregular forms recorded there are resolved to their headword (e.g. `oxen` → `ox`, `colour` → `color`). This step is skipped if the `.sidx` sidecar could not be built (e.g. transient low memory during indexing); the dictionary otherwise stays usable, and the build is retried the next time it is opened.
 3. **Stemming** — still no match: common English word forms are retried automatically: possessives and plurals (`dogs` → `dog`, `stories` → `story`) and verb endings (`walked` → `walk`, `running` → `run`, `making` → `make`).
-4. **Not found** — a short popup appears and you return to word selection.
+4. **Korean forms** — still no match and the word has Hangul: the reader tries the forms a Korean dictionary lists. Particles come off (`사랑을` → `사랑`, `집에` → `집`), verbs and adjectives go to their 다 form (`먹었다` → `먹다`, `공부했다` → `공부하다`, `간다` → `가다`), and the common irregulars are restored (`아름다운` → `아름답다`, `몰라` → `모르다`, `파란` → `파랗다`, `드문` → `드물다`). Longer stems are tried first, at most 24 forms per word. These are rule-based guesses, so a form can land on another word (`물을` → `물다`); the definition screen shows the headword that matched.
+5. **Not found** — a short popup appears and you return to word selection.
 
 ## The Definition Screen
 
@@ -55,6 +56,38 @@ HTML dictionaries that declare `sametypesequence=h` use the EPUB text-layout eng
 - **Back** — return to word selection
 
 
+
+## Korean dictionary (표준국어대사전)
+
+Every Korean release since 1.6.5-ko.10 carries `stdict-표준국어대사전.zip`: the National Institute of Korean Language's Standard Korean Language Dictionary (국립국어원 표준국어대사전), converted for the reader. It holds 287,761 single-word headwords with part of speech, Hanja and definitions (about 21 MB).
+
+1. Unzip it and copy the `stdict` folder into `/dictionaries/`, so the SD card has `/dictionaries/stdict/stdict.ifo`.
+2. Select **표준국어대사전** in **Settings → Reader → Dictionary**. The first lookup indexes it once.
+
+The data is © 국립국어원 under [CC BY-SA 2.0 KR](https://creativecommons.org/licenses/by-sa/2.0/kr/); `LICENSE.txt` in the folder says so. Anything built from it carries the same license.
+
+### Building it yourself
+
+`scripts/build_korean_dictionary.py` (Python 3, standard library only) builds the dictionary from the dictionary's bulk XML:
+
+1. Get the XML: sign in at [stdict.korean.go.kr](https://stdict.korean.go.kr), open **내 정보 관리 → 사전 내려받기**, and press **전체 내려받기** for the XML ZIP. The [`spellcheck-ko/korean-dict-nikl`](https://github.com/spellcheck-ko/korean-dict-nikl) repository keeps a copy of the same files in its `stdict/` folder.
+2. Run the script on the ZIP or the folder of XML files:
+
+   ```bash
+   python3 scripts/build_korean_dictionary.py stdict.zip out/stdict
+   ```
+
+3. Copy `out/stdict` to `/dictionaries/stdict` on the SD card.
+
+What the script keeps and changes:
+
+- Single words only (`word_unit` 단어). Phrases, idioms and proverbs cannot be selected as one word on the page, and affixes and endings (`-ㄴ가`, `개-`) are left out.
+- Headword markup is removed: homograph numbers (`사과01` → `사과`) and the `-` and `^` that mark word parts and optional spaces (`공부-하다` → `공부하다`).
+- All homographs and senses of a headword become one entry, numbered `[1]`, `[2]`, … in the dictionary's order, each with its part of speech (`「명사」`) and Hanja.
+- Examples are dropped: those quoted from books and newspapers are not under the open license, and short entries suit the screen.
+- The output is `.ifo`, `.idx` and a `.dict.dz` with standard 58,315-byte dictzip chunks (`--no-compress` writes a plain `.dict`). Takes about 20 seconds.
+
+The same approach works for 우리말샘 (opendict.korean.go.kr), whose bulk XML has a similar `<item>` layout, but it has 1.2 million headwords, most of them technical terms; the script reads the 표준국어대사전 layout only.
 
 ## Where to find dictionaries
 
