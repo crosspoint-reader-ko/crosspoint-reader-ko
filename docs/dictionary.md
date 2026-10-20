@@ -59,7 +59,7 @@ HTML dictionaries that declare `sametypesequence=h` use the EPUB text-layout eng
 
 ## Korean dictionary (표준국어대사전)
 
-Every Korean release since 1.6.5-ko.10 carries `stdict-표준국어대사전.zip`: the National Institute of Korean Language's Standard Korean Language Dictionary (국립국어원 표준국어대사전), converted for the reader. It holds 287,761 single-word headwords with part of speech, Hanja and definitions (about 21 MB).
+Every Korean release since 1.6.5-ko.10 carries `stdict-korean-dictionary.zip`: the National Institute of Korean Language's Standard Korean Language Dictionary (국립국어원 표준국어대사전), converted for the reader. It holds 287,761 single-word headwords with part of speech, Hanja and definitions (about 21 MB).
 
 1. Unzip it and copy the `stdict` folder into `/dictionaries/`, so the SD card has `/dictionaries/stdict/stdict.ifo`.
 2. Select **표준국어대사전** in **Settings → Reader → Dictionary**. The first lookup indexes it once.
