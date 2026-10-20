@@ -27,15 +27,24 @@ def norm_floor(val):
 def norm_ceil(val):
     return int(math.ceil(val / (1 << 6)))
 
+# (start, end, font index): code points in the range try that font first, then the rest in order.
+# One script then comes from one font, e.g. all of Greek from a font whose letters share one width.
+PREFERRED_FONTS = []
+
+
 def load_glyph(font_stack, code_point):
-    face_index = 0
-    while face_index < len(font_stack):
+    order = list(range(len(font_stack)))
+    for start, end, index in PREFERRED_FONTS:
+        if start <= code_point <= end and index < len(font_stack):
+            order.remove(index)
+            order.insert(0, index)
+            break
+    for face_index in order:
         face = font_stack[face_index]
         glyph_index = face.get_char_index(code_point)
         if glyph_index > 0:
             face.load_glyph(glyph_index, freetype.FT_LOAD_RENDER)
             return face
-        face_index += 1
     return None
 
 def convert_ttf_to_epdfont(font_files, font_name, size, output_path, additional_intervals=None, is_2bit=False):
@@ -297,8 +306,13 @@ def main():
     parser.add_argument('--2bit', dest='is_2bit', action='store_true', help='Generate 2-bit greyscale instead of 1-bit')
     parser.add_argument('--additional-intervals', dest='additional_intervals', action='append',
                         help='Additional Unicode intervals as MIN,MAX (hex or decimal). Can be repeated.')
+    parser.add_argument('--prefer', dest='prefer', action='append', default=[],
+                        help='MIN,MAX,INDEX: take code points in the range from font INDEX (0-based) first. Can be repeated.')
     parser.add_argument('-o', '--output', dest='output', help='Output .epdfont file path')
     args = parser.parse_args()
+    for spec in args.prefer:
+        start, end, index = spec.split(',')
+        PREFERRED_FONTS.append((int(start, 0), int(end, 0), int(index)))
 
     output_path = args.output if args.output else f"{args.name}_{args.size}.epdfont"
 

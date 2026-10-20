@@ -18,8 +18,8 @@ name: Compile Release
 #   bootloader.bin, partitions.bin
 # Fonts:
 #   KoPubBatang-14.epdfont             - KoPub Batang 14pt (Hangul, Hanja, kana and the KS X 1001 symbols
-#                                        the font has; accented and polytonic Greek it lacks come from
-#                                        Noto Serif), the built-in reader font up
+#                                        the font has; Greek comes from Noto Serif, whose letters share
+#                                        one width, KoPub's are full-width), the built-in reader font up
 #                                        to 1.6.5-ko.3. Copy to /fonts on the SD card and pick it in
 #                                        Settings > Reader font.
 
@@ -188,6 +188,8 @@ jobs:
         python ttf_to_epdfont.py kopub_14_regular 14 \
           "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" \
           ../builtinFonts/source/NotoSerif/NotoSerif-Regular.ttf --2bit \
+          --prefer 0x0370,0x03FF,1 \
+          --prefer 0x1F00,0x1FFF,1 \
           --additional-intervals 0x02B0,0x02FF \
           --additional-intervals 0x0370,0x03FF \
           --additional-intervals 0x1100,0x11FF \
