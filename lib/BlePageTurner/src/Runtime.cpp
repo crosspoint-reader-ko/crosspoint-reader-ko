@@ -344,7 +344,10 @@ bool suspend(const uint32_t endTimeoutMs) {
   if (attemptInFlight.load(std::memory_order_acquire)) return false;
   if (port::running() || port::stopping()) {
     host->holdFullSpeed(true);
-    if (!port::end(endTimeoutMs)) return false;
+    const uint32_t repairsBefore = port::stopRepairs();
+    const bool ended = port::end(endTimeoutMs);
+    if (port::stopRepairs() != repairsBefore) say(true, "NimBLE stop listener was still registered; not added twice\n");
+    if (!ended) return false;
   }
   host->holdFullSpeed(false);
   return true;

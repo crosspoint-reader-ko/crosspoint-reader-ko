@@ -40,6 +40,8 @@ bool begin();
 bool end(uint32_t timeoutMs);
 bool running();
 bool stopping();
+// Stop listeners the host found still registered at a stop and did not add twice (lifetime count).
+uint32_t stopRepairs();
 bool connected();
 bool connecting();
 struct ConnectionActivity {

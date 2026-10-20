@@ -12,6 +12,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+// Counted by scripts/patch_nimble.py's guard in NimBLE's ble_hs_stop.c.
+extern "C" volatile uint32_t ble_hs_stop_dup_registrations;
+
 namespace bleturner::port {
 namespace {
 
@@ -43,6 +46,7 @@ bool begin() { return hid().begin("FreeInk"); }
 bool end(const uint32_t timeoutMs) { return hid().end(timeoutMs); }
 bool running() { return hid().isRunning(); }
 bool stopping() { return hid().isStopping(); }
+uint32_t stopRepairs() { return ble_hs_stop_dup_registrations; }
 bool connected() { return hid().isConnected(); }
 bool connecting() { return hid().isConnecting(); }
 // The SDK reports no advertisement count: a connection attempt in flight is the only activity.

@@ -13,6 +13,7 @@ bool begin() { return false; }
 bool end(uint32_t) { return true; }
 bool running() { return false; }
 bool stopping() { return false; }
+uint32_t stopRepairs() { return 0; }
 bool connected() { return false; }
 bool connecting() { return false; }
 ConnectionActivity connectionActivity() { return {false, 0}; }

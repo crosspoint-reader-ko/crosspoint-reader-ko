@@ -101,6 +101,7 @@ bool end(const uint32_t timeoutMs) {
 }
 bool running() { return theRadio.running; }
 bool stopping() { return theRadio.stopping; }
+uint32_t stopRepairs() { return 0; }
 bool connected() { return theRadio.connected; }
 bool connecting() { return theRadio.connecting; }
 ConnectionActivity connectionActivity() {
