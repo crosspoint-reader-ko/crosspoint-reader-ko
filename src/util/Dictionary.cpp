@@ -11,6 +11,7 @@
 
 #include "DictZip.h"
 #include "DictionaryRegistry.h"
+#include "KoreanStem.h"
 #include "StringUtils.h"
 
 namespace {
@@ -663,6 +664,17 @@ bool Dictionary::lookup(const char* word, std::string& definitionOut, std::strin
     if (!location.found) {
       std::vector<std::string> variants;
       stemVariants(cleaned, variants);
+      for (const auto& variant : variants) {
+        location = locate(session, variant.c_str(), &matchedHeadwordOut);
+        searchFailed = searchFailed || location.readError;
+        if (location.found) break;
+      }
+    }
+
+    // Korean words carry particles and endings the headwords do not (사랑을 -> 사랑, 먹었다 -> 먹다).
+    if (!location.found) {
+      std::vector<std::string> variants;
+      koreanstem::variants(cleaned, variants);
       for (const auto& variant : variants) {
         location = locate(session, variant.c_str(), &matchedHeadwordOut);
         searchFailed = searchFailed || location.readError;

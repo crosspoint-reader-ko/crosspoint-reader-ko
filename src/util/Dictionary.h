@@ -76,7 +76,8 @@ class Dictionary {
   bool buildIndex(void (*yieldFn)(void*) = nullptr, void* ctx = nullptr, IndexResult* outResult = nullptr);
 
   // Clean the word, look it up, and on a miss retry dictionary-authored
-  // synonyms then mini stem variants (-'s/-s/-es/-ies/-ed/-ing). On a hit fills
+  // synonyms, then mini stem variants (-'s/-s/-es/-ies/-ed/-ing), then Korean
+  // headword guesses (koreanstem::variants: particles and endings). On a hit fills
   // the definition text (capped at MAX_DEFINITION_BYTES) and the headword as
   // stored in the index. Returns true on a hit. *outResult (if provided)
   // reports the precise outcome so the UI can distinguish a genuine miss from a
