@@ -1827,7 +1827,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     if (absoluteImageGrayscale) renderStatusBar();
   };
 
-  if (pageHasImagesNeedingDecode) {
+  // The absolute waveform (UC8279 boards, S3 with PSRAM) decodes fast enough that a page without
+  // its images first is one more flash for nothing.
+  if (pageHasImagesNeedingDecode && !absoluteImageGrayscale) {
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     renderStatusBar();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
@@ -1840,7 +1842,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   if (absoluteImageGrayscale) {
-    const auto baseMode = cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+    // The absolute planes drive every pixel to its level whatever the panel showed, so a HALF base
+    // only adds a flash; it stays for a refresh the reader asked for.
+    const auto baseMode = manualRefreshPending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
     if (!renderer.displayGrayscaleBase(HalDisplay::GrayscaleMode::Absolute, baseMode)) {
       LOG_ERR("ERS", "Could not start absolute image page; displaying B/W");
       ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
