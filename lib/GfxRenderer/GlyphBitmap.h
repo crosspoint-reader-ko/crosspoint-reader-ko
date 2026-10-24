@@ -8,8 +8,10 @@
 // on GfxRenderer so it can be unit-tested on the host.
 namespace glyphBitmap {
 
-// Framebuffer plane a glyph is painted into.
-enum class Plane : uint8_t { BW, GrayLSB, GrayMSB };
+// Framebuffer plane a glyph is painted into. Gray* are overlay masks on top of
+// the B/W pass; Absolute* are complete planes that start white (see
+// GrayscaleCapabilities: black=00, dark=10, light=01, white=11 as LSB, MSB).
+enum class Plane : uint8_t { BW, GrayLSB, GrayMSB, AbsoluteLSB, AbsoluteMSB };
 
 // Position of glyph pixel (0, 0) plus the step for one move along the glyph's
 // x and y axes, all in one coordinate space. The axes must describe an
@@ -88,8 +90,10 @@ __attribute__((always_inline)) inline void paint(uint8_t* buffer, int destinatio
 // plane: which 2bpp values are painted. BW paints every non-white value and
 //   honours state (true clears the bit, i.e. black). The gray planes only ever
 //   set bits, because there 0 means leave alone and 1 means update: MSB paints
-//   both grays, LSB paints dark gray only. 1bpp glyphs paint ink with state on
-//   every plane.
+//   both grays, LSB paints dark gray only. The absolute planes clear the bits
+//   of every level that is 0 in that plane (LSB: light gray and black, MSB:
+//   dark gray and black) and honour state like BW. 1bpp glyphs paint ink with
+//   state on every plane.
 // Clipping happens before pixel decoding, so fully hidden glyphs cost nothing.
 inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plane plane, bool state,
                  const Target& target, Clip clip) {
@@ -97,8 +101,25 @@ inline void draw(const uint8_t* bitmap, int width, int height, bool twoBit, Plan
   uint8_t levels = 0x02;
   bool clearBits = state;
   if (twoBit) {
-    levels = plane == Plane::BW ? 0x0e : plane == Plane::GrayMSB ? 0x06 : 0x04;
-    if (plane != Plane::BW) clearBits = false;
+    switch (plane) {
+      case Plane::BW:
+        levels = 0x0e;
+        break;
+      case Plane::GrayLSB:
+        levels = 0x04;
+        clearBits = false;
+        break;
+      case Plane::GrayMSB:
+        levels = 0x06;
+        clearBits = false;
+        break;
+      case Plane::AbsoluteLSB:
+        levels = 0x0a;
+        break;
+      case Plane::AbsoluteMSB:
+        levels = 0x0c;
+        break;
+    }
   }
 
   // Intersect with the glyph bounds, then with the panel width and the

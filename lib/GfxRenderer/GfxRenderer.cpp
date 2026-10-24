@@ -362,7 +362,6 @@ template <TextRotation rotation = TextRotation::None>
 static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                            const UnifiedFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                            const bool pixelState, const EpdFontFamily::Style style) {
-  if (renderer.grayPlanesAreAbsolute()) renderMode = GfxRenderer::BW;
   // Resolve which family actually owns this codepoint's glyph (primary, or the glyph-level
   // fallback "system font"). All per-glyph metrics/bitmap below must come from the resolved
   // family, since a fallback glyph has its own ascender / is2Bit / bitmap source.
@@ -464,9 +463,12 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   physical.dyX = nextX - physical.x;
   physical.dyY = nextY - physical.y;
 
-  const glyphBitmap::Plane plane = mode == BW              ? glyphBitmap::Plane::BW
-                                   : mode == GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
-                                                           : glyphBitmap::Plane::GrayLSB;
+  glyphBitmap::Plane plane = glyphBitmap::Plane::BW;
+  if (mode == GRAYSCALE_MSB) {
+    plane = absoluteGrayPlanes ? glyphBitmap::Plane::AbsoluteMSB : glyphBitmap::Plane::GrayMSB;
+  } else if (mode == GRAYSCALE_LSB) {
+    plane = absoluteGrayPlanes ? glyphBitmap::Plane::AbsoluteLSB : glyphBitmap::Plane::GrayLSB;
+  }
   glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip);
 }
 
