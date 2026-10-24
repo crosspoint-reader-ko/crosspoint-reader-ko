@@ -7,6 +7,7 @@
 
 #include "FontCacheManager.h"
 #include "FontDecompressor.h"
+#include "SdFont.h"
 #include "SdFontFamily.h"
 
 // The Korean fork keeps its own font engine: flash EpdFontFamily fonts are prewarmed through the
@@ -161,4 +162,17 @@ TEST(FontCacheManagerTest, IncrementalPrewarmHonoursStyleMask) {
   ASSERT_EQ(1, decompressor.prewarmCallCount);
   EXPECT_EQ(&boldData, decompressor.prewarmCalls[0].fontData);
   EXPECT_STREQ("title", decompressor.prewarmCalls[0].text);
+}
+
+TEST(FontCacheManagerTest, ReleaseSdFontCachesClearsFlashAndSdGlyphCaches) {
+  std::map<int, UnifiedFontSlot> fonts;
+  FontDecompressor decompressor;
+  FontCacheManager manager(fonts);
+  manager.setFontDecompressor(&decompressor);
+  SdFontData::clearCacheCalls = 0;
+
+  manager.releaseSdFontCaches();
+
+  EXPECT_EQ(1, decompressor.clearCacheCalls);
+  EXPECT_EQ(1, SdFontData::clearCacheCalls);
 }

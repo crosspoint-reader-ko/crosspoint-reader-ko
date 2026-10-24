@@ -30,8 +30,12 @@ inline constexpr RemoteButtonProfile kRemoteButtonProfiles[] = {
     // buttons keep using the generic HID decode. Report IDs vary by model.
     {"Free3", 2, {{0x000102, RemoteKey::PageDown, true}, {0x000008, RemoteKey::PageUp, true}}},
     // BOOX Keypage has two observed code sets, both on report 3.
-    {"BOOX Keypage", 4, {{0x030002, RemoteKey::Right}, {0x030001, RemoteKey::Left},
-                         {0x030004, RemoteKey::Right}, {0x030008, RemoteKey::Left}}},
+    {"BOOX Keypage",
+     4,
+     {{0x030002, RemoteKey::Right},
+      {0x030001, RemoteKey::Left},
+      {0x030004, RemoteKey::Right},
+      {0x030008, RemoteKey::Left}}},
 };
 
 // Index into kRemoteButtonProfiles, or -1 when generic HID decoding applies.
