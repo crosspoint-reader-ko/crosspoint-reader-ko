@@ -298,6 +298,8 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Images**: Whether to display embedded images (JPG/PNG) found in EPUB files; options are "ON" (default) or "OFF".
 
+- **Image Grayscale**: Whether EPUB images are drawn in gray levels. "ON" (default) shows gray images, which costs an extra screen flash on pages with images. "OFF" draws images as a black-and-white dither, so those pages turn like any other page.
+
 - **Focus Reading**: Bolds the first part of each word to create visual fixation points, similar to Bionic Reading. This can help improve reading speed and focus; options are "ON" or "OFF" (default).
 
 #### 3.6.3 Controls
