@@ -5,6 +5,7 @@
 // ip4_addr.h unless seen first. Pin this order; clang-format would otherwise sort
 // the local header last and break the build.
 #include "HttpDownloader.h"
+#include "DualBoot.h"
 #include "FirmwareFlasher.h"
 #include <Arduino.h>
 #include <HalStorage.h>
@@ -209,6 +210,10 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     lastError = "not_newer";
     return UPDATE_OLDER_ERROR;
   }
+  if (dual_boot::otherApp()) {
+    lastError = "other_app";
+    return OTHER_APP_ERROR;
+  }
 
   // Two-phase: (1) stream firmware.bin to SD, (2) flash that file with
   // firmware_flash::flashFromSdPath. Skipping esp_https_ota_* avoids the running
@@ -345,6 +350,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     if (fr == firmware_flash::Result::BAD_CHIP || fr == firmware_flash::Result::WRONG_BOARD) {
       return WRONG_DEVICE_ERROR;
     }
+    if (fr == firmware_flash::Result::OTHER_APP) return OTHER_APP_ERROR;
     return INTERNAL_UPDATE_ERROR;
   }
 

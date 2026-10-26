@@ -29,6 +29,7 @@ class OtaUpdater {
     INTERNAL_UPDATE_ERROR,
     OOM_ERROR,
     WRONG_DEVICE_ERROR,
+    OTHER_APP_ERROR,  // dual-boot: the update slot holds another app
   };
 
   size_t getOtaSize() const { return otaSize; }

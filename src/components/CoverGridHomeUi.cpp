@@ -30,9 +30,10 @@ constexpr int COVER_ROW_EXTRA_HEIGHT = 8;
 CoverGridHomeUi::CoverGridHomeUi(GfxRenderer& renderer)
     : UiAppHost(renderer), coverCache(renderer), renderer(renderer) {}
 
-void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool continuing) {
+void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool apps, bool continuing) {
   books = &recent;
   hasOpds = opds;
+  hasApps = apps;
   hasContinueReading = continuing;
   if (!recent.empty()) coverCache.begin();
   resetUi();
@@ -267,10 +268,14 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
+  // Same order as HomeActivity::indexToMenuItem.
+  static constexpr const uint8_t* ICONS[] = {FolderIcon,   LibraryIcon, BlocksIcon,
+                                             TransferIcon, BlocksIcon,  Settings2Icon};
   int count = 0;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 6; ++i) {
     if (i == 2 && !hasOpds) continue;
+    if (i == 4 && !hasApps) continue;
+    tabIcons[count] = ICONS[i];
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
@@ -287,8 +292,8 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
-    const int icon = !self.hasOpds && index >= 2 ? index + 1 : index;
-    self.renderer.drawIcon(ICONS[icon], iconRect.x, iconRect.y, iconRect.width);
+    if (index < 0 || index >= static_cast<int>(self.tabIcons.size()) || !self.tabIcons[index]) return false;
+    self.renderer.drawIcon(self.tabIcons[index], iconRect.x, iconRect.y, iconRect.width);
     return true;
   };
   tabs.tabStyles.normal.background = fui::Paint::solid(fui::Color::White);

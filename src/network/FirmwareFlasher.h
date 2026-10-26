@@ -32,6 +32,7 @@ enum class Result {
   ERASE_FAIL,
   WRITE_FAIL,
   OTADATA_FAIL,
+  OTHER_APP,  // the update slot holds another app (dual-boot); writing would erase it
 };
 
 // Progress callback: called after every chunk write. `written`/`total` are bytes.

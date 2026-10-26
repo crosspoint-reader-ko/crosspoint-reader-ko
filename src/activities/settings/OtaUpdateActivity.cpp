@@ -199,7 +199,13 @@ void OtaUpdateActivity::runUpdateInstall() {
     LOG_DBG("OTA", "Update failed: %d", res);
     {
       RenderLock lock(*this);
-      failedDetail = res == OtaUpdater::WRONG_DEVICE_ERROR ? tr(STR_FIRMWARE_WRONG_DEVICE) : nullptr;
+      if (res == OtaUpdater::WRONG_DEVICE_ERROR) {
+        failedDetail = tr(STR_FIRMWARE_WRONG_DEVICE);
+      } else if (res == OtaUpdater::OTHER_APP_ERROR) {
+        failedDetail = tr(STR_FIRMWARE_OTHER_APP);
+      } else {
+        failedDetail = nullptr;
+      }
       state = FAILED;
     }
     requestUpdate();

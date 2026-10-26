@@ -12,6 +12,7 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/DualBoot.h"
 #include "network/FirmwareFlasher.h"
 
 void SdFirmwareUpdateActivity::onEnter() {
@@ -82,6 +83,11 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   if (!dest) {
     LOG_ERR("FW", "no next-update partition available");
     errorMessage = tr(STR_INVALID_FIRMWARE);
+    return false;
+  }
+  if (dest == dual_boot::otherApp()) {
+    LOG_ERR("FW", "update slot holds another app");
+    errorMessage = tr(STR_FIRMWARE_OTHER_APP);
     return false;
   }
   const size_t partitionLimit = dest->size;
@@ -172,9 +178,13 @@ void SdFirmwareUpdateActivity::performUpdate() {
     // BAD_CHIP / WRONG_BOARD here is the TOCTOU re-validation catching a
     // wrong-device image the pre-confirmation pass missed (e.g. the SD card
     // was swapped).
-    errorMessage = result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD
-                       ? tr(STR_FIRMWARE_WRONG_DEVICE)
-                       : tr(STR_FIRMWARE_WRITE_FAILED);
+    if (result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD) {
+      errorMessage = tr(STR_FIRMWARE_WRONG_DEVICE);
+    } else if (result == firmware_flash::Result::OTHER_APP) {
+      errorMessage = tr(STR_FIRMWARE_OTHER_APP);
+    } else {
+      errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
+    }
     RenderLock lock(*this);
     state = State::FAILED;
     requestUpdate();
