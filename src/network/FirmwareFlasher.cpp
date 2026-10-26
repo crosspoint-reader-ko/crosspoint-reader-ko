@@ -12,6 +12,7 @@
 #include <cstring>
 #include <memory>
 
+#include "DualBoot.h"
 #include "FirmwareBoardTag.h"
 #include "OtaBootSwitch.h"
 
@@ -55,6 +56,8 @@ const char* resultName(Result r) {
       return "BAD_SIZE";
     case Result::NO_PARTITION:
       return "NO_PARTITION";
+    case Result::OTHER_APP:
+      return "OTHER_APP";
     case Result::OOM:
       return "OOM";
     case Result::READ_FAIL:
@@ -280,6 +283,10 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
   if (!dest) {
     LOG_ERR("FLASH", "no next-update partition");
     return Result::NO_PARTITION;
+  }
+  if (dest == dual_boot::otherApp()) {
+    LOG_ERR("FLASH", "update slot holds another app, refusing to overwrite it");
+    return Result::OTHER_APP;
   }
 
   // When the caller already ran validateImageFile() against this same partition

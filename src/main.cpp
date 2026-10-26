@@ -45,6 +45,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/DualBoot.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/PluginEvents.h"
@@ -754,6 +755,9 @@ void setup() {
 #else
   LOG_INF("MAIN", "Device: %s", BoardConfig::ACTIVE.name);
 #endif
+
+  // Before the SD check below so a dual-boot partner sees our name even without a card.
+  dual_boot::registerSelf();
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter

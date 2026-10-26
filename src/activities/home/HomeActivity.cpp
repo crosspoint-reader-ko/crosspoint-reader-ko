@@ -26,6 +26,7 @@
 #include "components/UITheme.h"
 #include "components/themes/dos/DosTheme.h"
 #include "fontIds.h"
+#include "network/DualBoot.h"
 #include "util/BookProgress.h"
 
 int HomeActivity::getMenuItemCount() const {
@@ -34,6 +35,9 @@ int HomeActivity::getMenuItemCount() const {
     count += recentBooks.size();
   }
   if (hasLibrarySlot()) {
+    count++;
+  }
+  if (hasApps) {
     count++;
   }
   return count;
@@ -249,6 +253,7 @@ void HomeActivity::onEnter() {
   // even when no SD plugins are installed yet so Plugin Hub can be installed
   // from inside the Plugins screen (or users can sideload plugins manually).
   hasPlugins = SETTINGS.pluginsEnabled != 0;
+  hasApps = dual_boot::otherApp() != nullptr;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -269,13 +274,13 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
+    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasApps, hasContinueReading);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE
                       ? (dosTheme ? base : 0)
-                      : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+                      : base + menuItemToIndex(initialMenuItem, hasLibrarySlot(), hasApps);
 
   // Trigger first update
   requestUpdate();
@@ -336,7 +341,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
+    switch (indexToMenuItem(menuIndex, hasLibrarySlot(), hasApps)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -348,6 +353,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
+        break;
+      case HomeMenuItem::APPS:
+        onAppsOpen();
         break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
@@ -584,6 +592,11 @@ void HomeActivity::render(RenderLock&&) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
     menuIcons.insert(menuIcons.begin() + 2, Plugins);
   }
+  if (hasApps) {
+    // Just before Settings.
+    menuItems.insert(menuItems.end() - 1, tr(STR_APPS));
+    menuIcons.insert(menuIcons.end() - 1, Blocks);
+  }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
@@ -638,3 +651,5 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+
+void HomeActivity::onAppsOpen() { activityManager.goToApps(); }
