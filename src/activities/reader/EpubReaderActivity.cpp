@@ -2069,9 +2069,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   scope.endScanAndPrewarm();
   const auto tPrewarm = millis();
 
-  // With image grayscale off the page turns as plain B/W: images dither in the
+  // Black & White images: the page turns as plain B/W, images dither in the
   // B/W pass and text keeps its usual anti-aliasing.
-  const bool imageGrayscale = SETTINGS.imageGrayscale;
+  const bool imageGrayscale = SETTINGS.imageRendering != CrossPointSettings::IMAGES_DISPLAY_BW;
   struct DitherScope {
     GfxRenderer& renderer;
     ~DitherScope() { renderer.setDitherImagesInBw(false); }
