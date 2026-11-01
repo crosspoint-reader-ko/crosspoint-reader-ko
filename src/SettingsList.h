@@ -78,7 +78,9 @@ inline SettingInfo buildHomeThemeSetting() {
   const bool supportsCoverGrid = UITheme::supportsCoverGrid();
   return SettingInfo::DynamicEnum(
       StrId::STR_UI_THEME, homeThemeValues(),
-      [supportsCoverGrid]() -> uint8_t { return ui_theme_options::optionForTheme(SETTINGS.uiTheme, supportsCoverGrid); },
+      [supportsCoverGrid]() -> uint8_t {
+        return ui_theme_options::optionForTheme(SETTINGS.uiTheme, supportsCoverGrid);
+      },
       [supportsCoverGrid](const uint8_t option) {
         if (option < ui_theme_options::optionCount(supportsCoverGrid)) {
           SETTINGS.uiTheme = ui_theme_options::themeForOption(option, supportsCoverGrid);
