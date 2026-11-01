@@ -452,8 +452,8 @@ void HomeActivity::loop() {
   }
 
   const bool dosTheme = SETTINGS.uiTheme == CrossPointSettings::DOS;
-  const DosHomeLayout dosLayout = dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size()))
-                                           : DosHomeLayout{};
+  const DosHomeLayout dosLayout =
+      dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size())) : DosHomeLayout{};
   const int menuTop = dosTheme ? dosLayout.menuRowsTop
                                : metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int renderedMenuCount =
@@ -461,12 +461,12 @@ void HomeActivity::loop() {
   int menuRow = -1;
   // Row height from the theme, not the metrics table: RoundedRaff draws
   // font-derived rows and the touch grid must match the visuals exactly.
-  const int menuRowHeight = dosTheme ? DosTheme::homeMenuRowHeight(renderer, renderedMenuCount,
-                                                                   static_cast<int>(recentBooks.size()))
-                                     : GUI.getMenuRowHeight(renderer);
-  const int menuRowStep = dosTheme ? DosTheme::homeMenuRowStep(renderer, renderedMenuCount,
-                                                               static_cast<int>(recentBooks.size()))
-                                   : menuRowHeight + metrics.menuSpacing;
+  const int menuRowHeight =
+      dosTheme ? DosTheme::homeMenuRowHeight(renderer, renderedMenuCount, static_cast<int>(recentBooks.size()))
+               : GUI.getMenuRowHeight(renderer);
+  const int menuRowStep =
+      dosTheme ? DosTheme::homeMenuRowStep(renderer, renderedMenuCount, static_cast<int>(recentBooks.size()))
+               : menuRowHeight + metrics.menuSpacing;
   const auto menuTouch =
       mappedInput.rowTouch(menuRow, menuTop, menuRowStep, renderedMenuCount, 0, INT32_MAX, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
@@ -494,8 +494,8 @@ void HomeActivity::render(RenderLock&&) {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
   const bool dosTheme = SETTINGS.uiTheme == CrossPointSettings::DOS;
-  const DosHomeLayout dosLayout = dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size()))
-                                           : DosHomeLayout{};
+  const DosHomeLayout dosLayout =
+      dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size())) : DosHomeLayout{};
 
   renderer.clearScreen();
   if (coverGridUi) {

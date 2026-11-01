@@ -10,13 +10,13 @@
 #include <cstdio>
 #include <string>
 
+#include "DosHomeLayoutGeometry.h"
 #include "RecentBooksStore.h"
 #include "components/HeaderBackTapTarget.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
-#include "DosHomeLayoutGeometry.h"
 #include "fontIds.h"
 
 namespace {
@@ -26,9 +26,13 @@ int scalePermille(const int value, const int permille) { return (value * permill
 
 dos_layout::FontMetrics homeFontMetrics(const GfxRenderer& renderer) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  return {renderer.getLineHeight(uiScaleSpec().titleFontId), renderer.getLineHeight(UI_10_FONT_ID),
-          renderer.getLineHeight(UI_12_FONT_ID),  renderer.getLineHeight(UI_10_FONT_ID),
-          renderer.getLineHeight(UI_12_FONT_ID),  metrics.batteryBarHeight, metrics.topPadding};
+  return {renderer.getLineHeight(uiScaleSpec().titleFontId),
+          renderer.getLineHeight(UI_10_FONT_ID),
+          renderer.getLineHeight(UI_12_FONT_ID),
+          renderer.getLineHeight(UI_10_FONT_ID),
+          renderer.getLineHeight(UI_12_FONT_ID),
+          metrics.batteryBarHeight,
+          metrics.topPadding};
 }
 
 std::string coreFirmwareVersion(const char* version) {
@@ -100,7 +104,7 @@ void drawDosHomeHeader(const GfxRenderer& renderer, const Rect rect, const char*
   const int equalsGlyphWidth = std::max(1, renderer.getTextWidth(UI_10_FONT_ID, "="));
   char rule[256];
   int characterCount = dos_layout::asciiRuleCharacterCount(screenWidth, sideMargin, equalsGlyphWidth,
-                                                            static_cast<int>(sizeof(rule) - 1));
+                                                           static_cast<int>(sizeof(rule) - 1));
   std::fill_n(rule, characterCount, '=');
   rule[characterCount] = '\0';
   int ruleWidth = renderer.getTextWidth(UI_10_FONT_ID, rule);
@@ -121,7 +125,8 @@ const char* recentBookTitle(const RecentBook& book) {
   return tr(STR_LIBRARY_UNKNOWN_TITLE);
 }
 
-void drawProgressLine(GfxRenderer& renderer, const int y, const int rightEdge, const int leftLimit, const int progress) {
+void drawProgressLine(GfxRenderer& renderer, const int y, const int rightEdge, const int leftLimit,
+                      const int progress) {
   constexpr int MAX_BAR_SEGMENTS = 20;
   const int hashWidth = renderer.getTextWidth(UI_10_FONT_ID, "#");
   const int dotWidth = renderer.getTextWidth(UI_10_FONT_ID, ".");
@@ -169,8 +174,7 @@ DosHomeLayout DosTheme::homeLayout(const GfxRenderer& renderer, int recentBookCo
   const int screenHeight = renderer.getScreenHeight();
   const dos_layout::FontMetrics fontMetrics = homeFontMetrics(renderer);
   if (recentBookCount < 0) recentBookCount = dos_layout::recentBookLimit(screenWidth, screenHeight, fontMetrics);
-  const dos_layout::Geometry geometry =
-      dos_layout::calculate(screenWidth, screenHeight, fontMetrics, recentBookCount);
+  const dos_layout::Geometry geometry = dos_layout::calculate(screenWidth, screenHeight, fontMetrics, recentBookCount);
 
   DosHomeLayout layout{};
   layout.header = Rect{geometry.header.x, geometry.header.y, geometry.header.width, geometry.header.height};
@@ -288,9 +292,9 @@ void DosTheme::drawHomeRecentBooks(GfxRenderer& renderer, const Rect rect, const
     const bool selected = selectorIndex == i;
     if (selected) {
       const int progressY = rowY + layout.recentProgressOffset + (titleLineHeight - smallLineHeight) / 2;
-      const dos_layout::Box highlight = dos_layout::recentTitleSelection(
-          layout.selectionX, layout.selectionWidth, rect.y, rect.y + rect.height, rowY, titleLineHeight, progressY,
-          layout.sectionGap);
+      const dos_layout::Box highlight =
+          dos_layout::recentTitleSelection(layout.selectionX, layout.selectionWidth, rect.y, rect.y + rect.height, rowY,
+                                           titleLineHeight, progressY, layout.sectionGap);
       if (highlight.height > 0) {
         renderer.fillRectDither(highlight.x, highlight.y, highlight.width, highlight.height, Color::LightGray);
       }

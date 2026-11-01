@@ -129,12 +129,13 @@ inline Geometry calculate(const int screenWidth, const int screenHeight, const F
     // Choose shared gaps and header coordinates against the full four-book
     // layout so title/battery geometry does not shift with the current list size.
     const int recentBottomOffset = (MAX_RECENT_BOOKS - 1) * recentStep + bodyLine + recentLineGap + progressLine;
-    const int recentMinimum = sectionGap + sectionLine + sectionGap + recentBottomOffset + smallGap + sectionLine +
-                              smallGap;
+    const int recentMinimum =
+        sectionGap + sectionLine + sectionGap + recentBottomOffset + smallGap + sectionLine + smallGap;
     const int rowHeight = bodyLine + menuRowPadding * 2;
-    const int menuMinimum = sectionLine + sectionGap + MAX_MENU_ITEMS * rowHeight +
-                            (MAX_MENU_ITEMS - 1) * smallGap + 2 * sectionGap;
-    return top + headerHeight() + recentMinimum + menuMinimum + sectionLine + hintLine + 2 * footerPadding + bottomInset;
+    const int menuMinimum =
+        sectionLine + sectionGap + MAX_MENU_ITEMS * rowHeight + (MAX_MENU_ITEMS - 1) * smallGap + 2 * sectionGap;
+    return top + headerHeight() + recentMinimum + menuMinimum + sectionLine + hintLine + 2 * footerPadding +
+           bottomInset;
   };
   while (requiredHeight() > height && sectionGap > 1) --sectionGap;
   while (requiredHeight() > height && smallGap > 1) --smallGap;
@@ -167,10 +168,9 @@ inline Geometry calculate(const int screenWidth, const int screenHeight, const F
   const int memoryY = titleY + titleLine + smallGap;
   const int separatorY = memoryY + sectionLine + smallGap;
   const int recentRowsTop = recentLabelY + sectionLine + sectionGap;
-  const int recentRenderedBottom = recentBookCount == 0
-                                       ? recentRowsTop + bodyLine
-                                       : recentRowsTop + (recentBookCount - 1) * recentRowStep + recentProgressOffset +
-                                             progressLine;
+  const int recentRenderedBottom = recentBookCount == 0 ? recentRowsTop + bodyLine
+                                                        : recentRowsTop + (recentBookCount - 1) * recentRowStep +
+                                                              recentProgressOffset + progressLine;
   const int syntaxErrorY = recentRenderedBottom + smallGap;
   const int menuLabelY = syntaxErrorY + sectionLine + smallGap;
   const int recentBottom = menuLabelY;
@@ -206,8 +206,8 @@ inline Geometry calculate(const int screenWidth, const int screenHeight, const F
   result.menuRowsBottom = menuRowsBottom;
   result.promptY = promptY;
   result.sectionGap = sectionGap;
-  result.contentFits = recentContentBottom <= menuLabelY && menuRenderedBottom <= menuRowsBottom &&
-                       menuRowStep >= menuRowHeight;
+  result.contentFits =
+      recentContentBottom <= menuLabelY && menuRenderedBottom <= menuRowsBottom && menuRowStep >= menuRowHeight;
   return result;
 }
 
@@ -218,31 +218,26 @@ inline int recentBookLimit(const int screenWidth, const int screenHeight, const 
   return 0;
 }
 
-inline int menuRowStep(const Geometry& layout, const int /*itemCount*/) {
-  return layout.menuRowStep;
-}
+inline int menuRowStep(const Geometry& layout, const int /*itemCount*/) { return layout.menuRowStep; }
 
 inline int menuRowStep(const int menuRowHeight, const int preferredMenuStep, const int menuRowsAvailable) {
   return fitMenuRowStep(menuRowHeight, preferredMenuStep, menuRowsAvailable);
 }
 
-inline int menuRowHeight(const Geometry& layout, const int /*itemCount*/) {
-  return layout.menuRowHeight;
-}
+inline int menuRowHeight(const Geometry& layout, const int /*itemCount*/) { return layout.menuRowHeight; }
 
 inline Box recentTitleSelection(const int selectionX, const int selectionWidth, const int recentTop,
-                                const int recentBottom, const int rowY, const int titleLineHeight,
-                                const int progressY, const int sectionGap) {
+                                const int recentBottom, const int rowY, const int titleLineHeight, const int progressY,
+                                const int sectionGap) {
   const int padding = std::max(1, sectionGap / 2);
   const int top = std::max(recentTop, rowY - padding);
   const int bottom = std::min({recentBottom, rowY + positive(titleLineHeight) + padding, progressY});
   return {selectionX, top, selectionWidth, std::max(0, bottom - top)};
 }
 
-inline ProgressLine progressLine(const int screenWidth, const int rightEdge, const int leftLimit,
-                                 const int hashWidth, const int dotWidth, const int openWidth,
-                                 const int closeWidth, const int percentageColumnWidth, const int requestedGap,
-                                 const int maxSegments = 20) {
+inline ProgressLine progressLine(const int screenWidth, const int rightEdge, const int leftLimit, const int hashWidth,
+                                 const int dotWidth, const int openWidth, const int closeWidth,
+                                 const int percentageColumnWidth, const int requestedGap, const int maxSegments = 20) {
   const int width = positive(screenWidth);
   const int left = std::clamp(leftLimit, 0, width);
   const int right = std::clamp(rightEdge, left, width);
