@@ -84,6 +84,10 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     }
   }
 
+  // The home theme uses dynamic option indices so the persisted UI_THEME IDs
+  // remain stable on both PSRAM and non-PSRAM boards.
+  doc["uiTheme"] = uiTheme;
+
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = frontButtonBack;
   doc["frontButtonConfirm"] = frontButtonConfirm;
@@ -182,6 +186,17 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
           v = info.valueRange.max;
       }
       s.*(info.valuePtr) = v;
+    }
+  }
+
+  if (doc["uiTheme"].is<uint8_t>()) {
+    const uint8_t storedTheme = doc["uiTheme"].as<uint8_t>();
+    if (ui_theme_options::isAvailableTheme(storedTheme, UITheme::supportsCoverGrid())) {
+      uiTheme = storedTheme;
+    } else {
+      // Match the prior no-PSRAM behavior for unavailable Cover Grid values.
+      uiTheme = LYRA;
+      needsResave = true;
     }
   }
 

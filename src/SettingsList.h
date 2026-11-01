@@ -67,10 +67,24 @@ inline std::vector<StrId> buildLongPressMenuValues() {
 }
 
 inline std::vector<StrId> homeThemeValues() {
-  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                                     StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_COVER_GRID};
-  const size_t count = UITheme::supportsCoverGrid() ? std::size(VALUES) : std::size(VALUES) - 1;
-  return {VALUES, VALUES + count};
+  std::vector<StrId> values = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
+                               StrId::STR_THEME_ROUNDEDRAFF};
+  if (UITheme::supportsCoverGrid()) values.push_back(StrId::STR_THEME_COVER_GRID);
+  values.push_back(StrId::STR_THEME_DOS);
+  return values;
+}
+
+inline SettingInfo buildHomeThemeSetting() {
+  const bool supportsCoverGrid = UITheme::supportsCoverGrid();
+  return SettingInfo::DynamicEnum(
+      StrId::STR_UI_THEME, homeThemeValues(),
+      [supportsCoverGrid]() -> uint8_t { return ui_theme_options::optionForTheme(SETTINGS.uiTheme, supportsCoverGrid); },
+      [supportsCoverGrid](const uint8_t option) {
+        if (option < ui_theme_options::optionCount(supportsCoverGrid)) {
+          SETTINGS.uiTheme = ui_theme_options::themeForOption(option, supportsCoverGrid);
+        }
+      },
+      "uiTheme", StrId::STR_CAT_DISPLAY);
 }
 
 // Shared settings list used by both the device settings UI and the web settings API.
@@ -123,8 +137,7 @@ inline std::vector<SettingInfo> getSettingsList(const std::vector<DictionaryEntr
                           {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15,
                            StrId::STR_PAGES_30, StrId::STR_NEVER},
                           "refreshFrequency", StrId::STR_CAT_DISPLAY),
-        SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
-                          StrId::STR_CAT_DISPLAY),
+        buildHomeThemeSetting(),
         SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                             StrId::STR_CAT_DISPLAY),
 #if FREEINK_CAP_FRONTLIGHT
