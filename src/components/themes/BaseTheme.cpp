@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
 
 #include "I18n.h"
 #include "RecentBooksStore.h"
@@ -688,6 +689,10 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
     renderer.drawCenteredText(UI_10_FONT_ID, y + renderer.getLineHeight(UI_12_FONT_ID), tr(STR_START_READING));
   }
 }
+
+void BaseTheme::drawHomeRecentBooks(GfxRenderer& /*renderer*/, Rect /*rect*/,
+                                    const std::vector<RecentBook>& /*recentBooks*/, int /*selectorIndex*/,
+                                    const int* /*progress*/, size_t /*progressCount*/) const {}
 
 int BaseTheme::getMenuRowHeight(const GfxRenderer&) const { return UITheme::getInstance().getMetrics().menuRowHeight; }
 

@@ -23,7 +23,9 @@
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
+#include "components/themes/dos/DosTheme.h"
 #include "fontIds.h"
+#include "util/BookProgress.h"
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
@@ -249,8 +251,16 @@ void HomeActivity::onEnter() {
     coverGridUi = makeUniqueNoThrow<CoverGridHomeUi>(renderer);
     if (!coverGridUi) LOG_ERR("HOME", "OOM: cover grid UI; using standard home");
   }
-  loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : metrics.homeRecentBooksCount);
+  const bool dosTheme = SETTINGS.uiTheme == CrossPointSettings::DOS;
+  const int recentBookLimit = dosTheme ? DosTheme::recentBooksLimit(renderer) : metrics.homeRecentBooksCount;
+  loadRecentBooks(coverGridUi ? CoverGridHomeUi::MAX_BOOKS : recentBookLimit);
   hasContinueReading = !recentBooks.empty();
+  recentBookProgress.fill(-1);
+  if (!coverGridUi && SETTINGS.uiTheme == CrossPointSettings::DOS) {
+    for (size_t i = 0; i < recentBooks.size() && i < recentBookProgress.size(); ++i) {
+      recentBookProgress[i] = loadBookProgress(recentBooks[i].path);
+    }
+  }
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
@@ -258,7 +268,8 @@ void HomeActivity::onEnter() {
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? (dosTheme ? base : 0)
+                                                        : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
 
   // Trigger first update
   requestUpdate();
@@ -417,9 +428,16 @@ void HomeActivity::loop() {
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
-  const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
-                                               metrics.homeTopPadding,
-                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+  const auto coverTouch = [&] {
+    if (SETTINGS.uiTheme == CrossPointSettings::DOS) {
+      const DosHomeLayout layout = DosTheme::homeLayout(renderer, recentCount);
+      return mappedInput.rowTouch(touchedBook, layout.recentRowsTop, layout.recentRowStep, recentCount, layout.contentX,
+                                  renderer.getScreenWidth() - layout.contentX, layout.recentRowStep);
+    }
+    return mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
+                                metrics.homeTopPadding, metrics.homeTopPadding + metrics.homeCoverTileHeight,
+                                coverColumnWidth);
+  }();
   if (coverTouch != MappedInputManager::RowTouch::None) {
     if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
@@ -433,15 +451,24 @@ void HomeActivity::loop() {
     return;
   }
 
-  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
+  const bool dosTheme = SETTINGS.uiTheme == CrossPointSettings::DOS;
+  const DosHomeLayout dosLayout = dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size()))
+                                           : DosHomeLayout{};
+  const int menuTop = dosTheme ? dosLayout.menuRowsTop
+                               : metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int renderedMenuCount =
       menuCount - (metrics.homeContinueReadingInMenu ? 0 : static_cast<int>(recentBooks.size()));
   int menuRow = -1;
   // Row height from the theme, not the metrics table: RoundedRaff draws
   // font-derived rows and the touch grid must match the visuals exactly.
-  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount,
-                                              0, INT32_MAX, menuRowHeight);
+  const int menuRowHeight = dosTheme ? DosTheme::homeMenuRowHeight(renderer, renderedMenuCount,
+                                                                   static_cast<int>(recentBooks.size()))
+                                     : GUI.getMenuRowHeight(renderer);
+  const int menuRowStep = dosTheme ? DosTheme::homeMenuRowStep(renderer, renderedMenuCount,
+                                                               static_cast<int>(recentBooks.size()))
+                                   : menuRowHeight + metrics.menuSpacing;
+  const auto menuTouch =
+      mappedInput.rowTouch(menuRow, menuTop, menuRowStep, renderedMenuCount, 0, INT32_MAX, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
         metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
@@ -466,6 +493,9 @@ void HomeActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+  const bool dosTheme = SETTINGS.uiTheme == CrossPointSettings::DOS;
+  const DosHomeLayout dosLayout = dosTheme ? DosTheme::homeLayout(renderer, static_cast<int>(recentBooks.size()))
+                                           : DosHomeLayout{};
 
   renderer.clearScreen();
   if (coverGridUi) {
@@ -503,7 +533,9 @@ void HomeActivity::render(RenderLock&&) {
   // homeTopPadding, so the height must shrink by topPadding or the band (and a
   // centered title, e.g. RoundedRaff's book title) sinks into the tile.
   // Home is the stack root: no back button in its header.
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding - metrics.topPadding},
+  const Rect headerRect =
+      dosTheme ? dosLayout.header : Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding - metrics.topPadding};
+  GUI.drawHeader(renderer, headerRect,
                  metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr,
                  nullptr, false);
 
@@ -511,13 +543,19 @@ void HomeActivity::render(RenderLock&&) {
   // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
   // instead of the 48 KB full framebuffer the previous bind captured.
   coverRectX = 0;
-  coverRectY = metrics.homeTopPadding;
+  const Rect recentBooksRect =
+      dosTheme ? dosLayout.recent : Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight};
+  coverRectY = recentBooksRect.y;
   coverRectW = pageWidth;
-  coverRectH = metrics.homeCoverTileHeight;
+  coverRectH = recentBooksRect.height;
 
-  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
+  if (dosTheme) {
+    GUI.drawHomeRecentBooks(renderer, recentBooksRect, recentBooks, selectorIndex, recentBookProgress.data(),
+                            recentBooks.size());
+  } else {
+    GUI.drawRecentBookCover(renderer, recentBooksRect, recentBooks, selectorIndex, coverRendered, coverBufferStored,
+                            bufferRestored, std::bind(&HomeActivity::storeCoverBuffer, this));
+  }
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
@@ -535,12 +573,13 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.insert(menuIcons.begin(), Book);
   }
 
+  const Rect menuRect =
+      dosTheme ? dosLayout.menu
+               : Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, pageWidth,
+                      pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
+                                    metrics.homeMenuTopOffset + metrics.buttonHintsHeight)};
   GUI.drawButtonMenu(
-      renderer,
-      Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
-                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
-      static_cast<int>(menuItems.size()),
+      renderer, menuRect, static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
       [&menuIcons](int index) { return menuIcons[index]; });
@@ -549,15 +588,21 @@ void HomeActivity::render(RenderLock&&) {
                                             tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  const auto refreshMode =
+      cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+  renderer.displayBuffer(refreshMode);
 
   if (!firstRenderDone) {
     firstRenderDone = true;
     requestUpdate();
   } else if (!recentsLoaded && !recentsLoading) {
-    recentsLoading = true;
-    const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
-    loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
+    if (!GUI.usesHomeCoverImages()) {
+      recentsLoaded = true;
+    } else {
+      recentsLoading = true;
+      const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
+      loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
+    }
   }
 }
 
