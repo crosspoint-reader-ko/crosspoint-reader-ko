@@ -257,11 +257,14 @@ void SettingsActivity::toggleSelectedSetting() {
     const uint8_t cur = setting.valueGetter();
     if (totalValues > 2) {
       const auto valueSetter = setting.valueSetter;
-      auto onSelect = [this, valueSetter, sleepScreenChanged, quickResumeTimeoutChanged](int idx) {
+      auto valuePtr = setting.valuePtr;
+      if (!valuePtr && setting.nameId == StrId::STR_UI_THEME) valuePtr = &CrossPointSettings::uiTheme;
+      auto onSelect = [this, valueSetter, valuePtr, sleepScreenChanged, quickResumeTimeoutChanged](int idx) {
         valueSetter(idx);
         syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
         SETTINGS.saveToFile();
         rebuildSettings();
+        applyUiSettingChange(valuePtr);
       };
       if (!setting.enumStringValues.empty()) {
         optionPopup.show(setting.nameId, setting.enumStringValues, cur, std::move(onSelect));

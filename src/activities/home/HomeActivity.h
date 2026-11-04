@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <functional>
 #include <vector>
 
@@ -14,6 +15,7 @@ class HomeActivity final : public Activity {
   std::unique_ptr<CoverGridHomeUi> coverGridUi;
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
+  std::array<int, RecentBooksStore::MAX_RECENT_BOOKS> recentBookProgress{};
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;

@@ -148,10 +148,26 @@ inline SettingInfo buildShortPowerButtonSetting() {
 }
 
 inline std::vector<StrId> homeThemeValues() {
-  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
-                                     StrId::STR_THEME_ROUNDEDRAFF, StrId::STR_THEME_COVER_GRID};
-  const size_t count = UITheme::supportsCoverGrid() ? std::size(VALUES) : std::size(VALUES) - 1;
-  return {VALUES, VALUES + count};
+  std::vector<StrId> values = {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED,
+                               StrId::STR_THEME_ROUNDEDRAFF};
+  if (UITheme::supportsCoverGrid()) values.push_back(StrId::STR_THEME_COVER_GRID);
+  values.push_back(StrId::STR_THEME_DOS);
+  return values;
+}
+
+inline SettingInfo buildHomeThemeSetting() {
+  const bool supportsCoverGrid = UITheme::supportsCoverGrid();
+  return SettingInfo::DynamicEnum(
+      StrId::STR_UI_THEME, homeThemeValues(),
+      [supportsCoverGrid]() -> uint8_t {
+        return ui_theme_options::optionForTheme(SETTINGS.uiTheme, supportsCoverGrid);
+      },
+      [supportsCoverGrid](const uint8_t option) {
+        if (option < ui_theme_options::optionCount(supportsCoverGrid)) {
+          SETTINGS.uiTheme = ui_theme_options::themeForOption(option, supportsCoverGrid);
+        }
+      },
+      "uiTheme", StrId::STR_CAT_DISPLAY);
 }
 
 using SettingVisitor = void (*)(void* context, SettingInfo& info);

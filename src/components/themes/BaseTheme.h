@@ -283,6 +283,11 @@ class BaseTheme {
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                    const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
                                    bool& bufferRestored, std::function<bool()> storeCoverBuffer) const;
+  // Optional text-list home layout for themes that replace the cover carousel.
+  // Progress values are preloaded by HomeActivity so drawing never reads SD.
+  virtual void drawHomeRecentBooks(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
+                                   int selectorIndex, const int* progress, size_t progressCount) const;
+  virtual bool usesHomeCoverImages() const { return true; }
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
                               const std::function<UIIcon(int index)>& rowIcon) const;

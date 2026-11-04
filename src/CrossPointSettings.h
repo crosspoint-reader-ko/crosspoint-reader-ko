@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "components/UIThemeOptionMapping.h"
 #include "util/HomeButtonInput.h"
 
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
@@ -201,8 +202,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LONG_PRESS_BUTTON_BEHAVIOR_COUNT
   };
 
-  // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, COVER_GRID = 4 };
+  // Keep existing persisted theme values stable when adding new themes.
+  enum UI_THEME {
+    CLASSIC = ui_theme_options::CLASSIC,
+    LYRA = ui_theme_options::LYRA,
+    LYRA_3_COVERS = ui_theme_options::LYRA_3_COVERS,
+    ROUNDEDRAFF = ui_theme_options::ROUNDEDRAFF,
+    COVER_GRID = ui_theme_options::COVER_GRID,
+    DOS = ui_theme_options::DOS
+  };
 
   // Image rendering in EPUB reader. IMAGES_DISPLAY_BW lays images out like
   // IMAGES_DISPLAY but draws them as a B/W dither, so image pages skip the
