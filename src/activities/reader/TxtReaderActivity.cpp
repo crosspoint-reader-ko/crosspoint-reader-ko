@@ -29,7 +29,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // the current byte offset plus the layout settings used to produce it, so we
 // can reset to the start if the user changed font/margin/etc. since last read.
 constexpr uint32_t PROGRESS_MAGIC = 0x54585450;  // "TXTP"
-constexpr uint8_t PROGRESS_VERSION = 2;          // v2 adds extraParagraphSpacing + paragraphIndent
+constexpr uint8_t PROGRESS_VERSION = 2;          // v2 adds extraParagraphSpacing + paragraph indent
 
 // Auto page-turn options in pages-per-minute. Index 0 disables; the rest mirror
 // the EPUB reader's choices so users see consistent values across formats.
@@ -542,7 +542,7 @@ void TxtReaderActivity::recomputeLayout() {
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
   cachedCharacterWrap = SETTINGS.characterWrap;
   cachedExtraParagraphSpacing = SETTINGS.extraParagraphSpacing;
-  cachedParagraphIndent = SETTINGS.paragraphIndent;
+  cachedParagraphIndentSpaces = SETTINGS.paragraphIndentSpaces;
   cachedLineCompression = SETTINGS.getReaderLineCompression();
 
   // Calculate viewport dimensions
@@ -558,9 +558,8 @@ void TxtReaderActivity::recomputeLayout() {
   viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
   const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
 
-  // Indent ≈ 1em (one full font height), spacing ≈ half a line. These match
-  // the visual feel of EPUB text-indent/paragraph-margin defaults.
-  paragraphIndentPx = cachedParagraphIndent ? renderer.getLineHeight(cachedFontId) : 0;
+  // Indent is N spaces, the same setting EPUB uses; spacing ≈ half a line.
+  paragraphIndentPx = renderer.getSpaceWidth(cachedFontId) * cachedParagraphIndentSpaces;
   paragraphSpacingPx = cachedExtraParagraphSpacing ? lineHeight / 2 : 0;
 
   // Conservative upper bound — actual lines per page is determined by
@@ -680,7 +679,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
 
     // First wrapped segment of this source line gets paragraph indent if
     // this source line begins a paragraph.
-    const int firstSegmentIndent = (cachedParagraphIndent && sourceLineStartsParagraph) ? paragraphIndentPx : 0;
+    const int firstSegmentIndent = (cachedParagraphIndentSpaces && sourceLineStartsParagraph) ? paragraphIndentPx : 0;
 
     // Track position within this source line (in bytes from pos)
     size_t lineBytePos = 0;
@@ -876,12 +875,12 @@ void TxtReaderActivity::renderBook() {
     const uint8_t currentAlignment = SETTINGS.paragraphAlignment;
     const uint8_t currentCharacterWrap = SETTINGS.characterWrap;
     const uint8_t currentExtraSpacing = SETTINGS.extraParagraphSpacing;
-    const uint8_t currentParagraphIndent = SETTINGS.paragraphIndent;
+    const uint8_t currentParagraphIndent = SETTINGS.paragraphIndentSpaces;
     const float currentLineCompression = SETTINGS.getReaderLineCompression();
 
     if (currentFontId != cachedFontId || currentMargin != cachedScreenMargin ||
         currentAlignment != cachedParagraphAlignment || currentCharacterWrap != cachedCharacterWrap ||
-        currentExtraSpacing != cachedExtraParagraphSpacing || currentParagraphIndent != cachedParagraphIndent ||
+        currentExtraSpacing != cachedExtraParagraphSpacing || currentParagraphIndent != cachedParagraphIndentSpaces ||
         currentLineCompression != cachedLineCompression) {
       LOG_DBG("TRS", "Settings changed, recomputing layout (font: %d->%d)", cachedFontId, currentFontId);
       // Keep currentOffset (the user's reading position), but snap to the
@@ -981,7 +980,7 @@ void TxtReaderActivity::renderPage() {
 
       if (!line.empty()) {
         // Indent only applies to the first wrapped segment of a paragraph.
-        const int indent = (cachedParagraphIndent && startsParagraph) ? paragraphIndentPx : 0;
+        const int indent = (cachedParagraphIndentSpaces && startsParagraph) ? paragraphIndentPx : 0;
         const int effectiveContentWidth = contentWidth - indent;
         int x = cachedOrientedMarginLeft + indent;
         // RTL detection: if a line starts with RTL text, switch to right-aligned
@@ -1109,7 +1108,7 @@ void TxtReaderActivity::saveProgress() const {
   put(&cachedParagraphAlignment, sizeof(cachedParagraphAlignment));
   put(&cachedCharacterWrap, sizeof(cachedCharacterWrap));
   put(&cachedExtraParagraphSpacing, sizeof(cachedExtraParagraphSpacing));
-  put(&cachedParagraphIndent, sizeof(cachedParagraphIndent));
+  put(&cachedParagraphIndentSpaces, sizeof(cachedParagraphIndentSpaces));
   put(&cachedLineCompression, sizeof(cachedLineCompression));
   put(&savedOffset, sizeof(savedOffset));
   if (!ProgressFile::writeAtomic(txt->getCachePath(), data, len)) {

@@ -88,11 +88,6 @@ class ParsedText {
   std::deque<std::string> rubyTexts;
   BlockStyle blockStyle;
   uint8_t wordSpacingPercent = 100;
-  bool paragraphIndent;
-  // applyParagraphIndent() prepends U+3000 to the first token. layoutAndExtractLines() can run
-  // several times over one block (soft flush re-lays out the same ParsedText), so the insert has
-  // to happen exactly once or every chunk gains another indent.
-  bool paragraphIndentApplied = false;
   bool characterWrap;
   uint8_t paragraphIndentSpaces;
   bool hyphenationEnabled;
@@ -145,17 +140,14 @@ class ParsedText {
   void layoutCharacterWrap(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth, int spaceWidth,
                            const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                            bool includeLastLine);
-  // Korean first-line indent: prefixes the first word with U+3000 when no CSS text-indent applies.
-  void applyParagraphIndent();
 
  public:
-  // paragraphIndent and characterWrap are the Korean layout switches; every construction site
-  // passes both explicitly.
-  explicit ParsedText(const bool paragraphIndent, const bool characterWrap, const bool hyphenationEnabled = false,
+  // characterWrap is the Korean layout switch. The first parameter is the retired Korean indent
+  // toggle; the first-line indent now comes from paragraphIndentSpaces, as upstream.
+  explicit ParsedText(const bool /*paragraphIndent*/, const bool characterWrap, const bool hyphenationEnabled = false,
                       const bool focusReadingEnabled = false, const BlockStyle& blockStyle = BlockStyle(),
                       const uint8_t paragraphIndentSpaces = 2)
       : blockStyle(blockStyle),
-        paragraphIndent(paragraphIndent),
         characterWrap(characterWrap),
         paragraphIndentSpaces(paragraphIndentSpaces),
         hyphenationEnabled(hyphenationEnabled),

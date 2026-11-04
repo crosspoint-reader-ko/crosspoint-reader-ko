@@ -98,7 +98,9 @@ namespace {
 // v100 (KO): upstream 2.0.0 merge. Header = upstream v73 (paragraphIndentSpaces) + the KO
 //      paragraphIndent/characterWrap fields. KO versions now start at 100 so upstream's own
 //      sequence (which reused 49 for a pre-release layout) never reaches a KO number.
-constexpr uint8_t SECTION_FILE_VERSION = 100;
+// v101 (KO): character-wrap layout applies the paragraphIndentSpaces first-line indent; the
+//      Korean U+3000 indent toggle is retired. Same header as v100.
+constexpr uint8_t SECTION_FILE_VERSION = 101;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
@@ -251,11 +253,11 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     if (spec.fontId != fileFontId || spec.lineCompression != fileLineCompression ||
         spec.extraParagraphSpacing != fileExtraParagraphSpacing || spec.paragraphIndent != fileParagraphIndent ||
         spec.paragraphIndentSpaces != fileParagraphIndentSpaces || spec.paragraphAlignment != fileParagraphAlignment ||
-        spec.characterWrap != fileCharacterWrap ||
-        spec.viewportWidth != fileViewportWidth || spec.viewportHeight != fileViewportHeight ||
-        spec.hyphenationEnabled != fileHyphenationEnabled || spec.embeddedStyle != fileEmbeddedStyle ||
-        spec.imageRendering != fileImageRendering || spec.focusReadingEnabled != fileFocusReadingEnabled ||
-        spec.characterSpacing != fileCharacterSpacing || spec.wordSpacingPercent != fileWordSpacingPercent) {
+        spec.characterWrap != fileCharacterWrap || spec.viewportWidth != fileViewportWidth ||
+        spec.viewportHeight != fileViewportHeight || spec.hyphenationEnabled != fileHyphenationEnabled ||
+        spec.embeddedStyle != fileEmbeddedStyle || spec.imageRendering != fileImageRendering ||
+        spec.focusReadingEnabled != fileFocusReadingEnabled || spec.characterSpacing != fileCharacterSpacing ||
+        spec.wordSpacingPercent != fileWordSpacingPercent) {
       file.close();
       LOG_ERR("SCT", "Deserialization failed: Parameters do not match");
       clearCache();

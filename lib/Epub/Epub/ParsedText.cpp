@@ -736,14 +736,10 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
                                      const int spaceWidth,
                                      const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                                      const bool includeLastLine) {
-  const int pageWidth = viewportWidth;
   // Spacing range: 1.0x to 1.5x of normal space width. spaceWidth already carries the
   // upstream word-spacing percentage (scaled by the caller).
   const int minSpacing = spaceWidth;
   const int maxSpacing = spaceWidth + (spaceWidth / 2);  // 1.5x
-
-  // The paragraph indent is applied by applyParagraphIndent(), which layoutAndExtractLines() runs
-  // before dispatching here. Inserting it again would double-indent every paragraph.
 
   // Tokens are NOT erased as they are placed. A soft flush (see ChapterHtmlSlimParser) calls this
   // with includeLastLine = false, meaning "lay out everything except the trailing partial line and
@@ -809,6 +805,10 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
   };
 
   while (!frontExhausted()) {
+    // The paragraph's first line is narrowed by the first-line indent and drawn shifted by it, as
+    // extractLine() does for the word-wrap path.
+    const int lineIndent = resolveFirstLineIndent(true, renderer, fontId);
+    const int pageWidth = viewportWidth - lineIndent;
     // Offset of the first word that will land on this line, for page resume-by-content-offset.
     const uint32_t lineVisibleOffset = visibleOffsetAt(0);
     std::vector<std::string> lineWordsVec;
@@ -1048,7 +1048,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     if (isLastLine || gapCount <= 0) {
       // Last line or single word: left align with normal spacing
-      int xpos = 0;
+      int xpos = lineIndent;
       for (size_t i = 0; i < lineWordsVec.size(); i++) {
         lineXPos.push_back(static_cast<int16_t>(xpos));
         lineWords.push_back(lineWordsVec[i]);
@@ -1064,7 +1064,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       int extraPixels = spareSpace % gapCount;  // Distribute these across first N gaps
       int gapsEmitted = 0;
 
-      int xpos = 0;
+      int xpos = lineIndent;
       for (size_t i = 0; i < lineWordsVec.size(); i++) {
         lineXPos.push_back(static_cast<int16_t>(xpos));
         lineWords.push_back(lineWordsVec[i]);
@@ -1088,6 +1088,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     // Everything this line took is now spoken for.
     commitLine();
+    firstLineConsumed = true;
+    paragraphStartEmitted = true;
 
     // Process the line
     if (!lineWords.empty()) {
@@ -1194,9 +1196,6 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
     return 0;
   }
   if (blockStyle.textIndentDefined && blockStyle.textIndent < 0) return blockStyle.textIndent;
-  // Korean paragraph indent: applyParagraphIndent() prefixes U+3000 unless the book sets its own
-  // text-indent, which then applies as written. Adding the space indent too would indent twice.
-  if (paragraphIndent) return blockStyle.textIndentDefined ? blockStyle.textIndent : 0;
   if (paragraphIndentSpaces == 0) return 0;
   return scaleSpace(renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR), wordSpacingPercent) * paragraphIndentSpaces;
 }
@@ -1229,9 +1228,6 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   isNaturalAlign =
       blockStyle.alignment == CssTextAlign::Justify ||
       (blockStyle.isRtl ? blockStyle.alignment == CssTextAlign::Right : blockStyle.alignment == CssTextAlign::Left);
-
-  // Apply fixed transforms before any per-line layout work.
-  applyParagraphIndent();
 
   // SD-card (.epdfont) fonts stream glyph metrics on demand via SdFont's own cache; no
   // separate prewarm step is needed here.
@@ -1625,28 +1621,6 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
   }
 
   return lineBreakIndices;
-}
-
-void ParsedText::applyParagraphIndent() {
-  if (!paragraphIndent || words.empty() || paragraphIndentApplied) {
-    return;
-  }
-  paragraphIndentApplied = true;
-
-  if (blockStyle.textIndentDefined) {
-    // CSS text-indent is explicitly set (even if 0) - don't use fallback
-    // The actual indent positioning is handled in extractLine()
-  } else if (isNaturalAlign) {
-    // No CSS text-indent defined — use ideographic space (U+3000) for Korean font compatibility.
-    // U+3000 (0xe3 0x80 0x80) is present in all Korean fonts; EM-SPACE (U+2003) is not.
-    std::string indented = "\xe3\x80\x80";
-    indented += wordAt(0);
-    WordStore::StoredWord stored;
-    if (storeWord(indented, stored)) {
-      wordStore.release(words.front());
-      words.front() = stored;
-    }
-  }
 }
 
 // Builds break indices while opportunistically splitting the word that would overflow the current line.

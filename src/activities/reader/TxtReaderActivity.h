@@ -42,7 +42,7 @@ class TxtReaderActivity final : public ReaderActivity {
   // to fill the viewport.
   std::vector<bool> currentPageLineEndsParagraph;
   // Parallel to currentPageLines: true if this line is the first wrapped
-  // segment of a source-file line (paragraph start). Used by paragraphIndent
+  // segment of a source-file line (paragraph start). Used by the paragraph indent
   // and to suppress double extra-spacing on the page's leading line.
   std::vector<bool> currentPageLineStartsParagraph;
   int maxLinesPerPage = 0;  // Upper bound; actual lines per page is height-driven.
@@ -60,7 +60,7 @@ class TxtReaderActivity final : public ReaderActivity {
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
   uint8_t cachedCharacterWrap = 0;
   uint8_t cachedExtraParagraphSpacing = 0;
-  uint8_t cachedParagraphIndent = 0;
+  uint8_t cachedParagraphIndentSpaces = 0;
   float cachedLineCompression = 1.0f;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
