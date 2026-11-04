@@ -33,6 +33,7 @@ lib/EpdFont/scripts/output/
 /dependencies.lock
 /sdkconfig.*
 sdkconfig.sticky
+sdkconfig.x4pro
 
 # Local debug screenshots pulled off the device
 screens-temp/

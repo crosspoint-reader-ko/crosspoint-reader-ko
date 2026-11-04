@@ -44,7 +44,9 @@ constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
 struct CrossPointSettings {
   enum { VIBRATION_OFF, VIBRATION_TOUCH_PAGE };
   int vibration = VIBRATION_OFF, hapticIntensity = 0;
+  enum { PWR_BOOKMARK = 7, PWR_SYNC = 8, PWR_READER_MENU = 9 };
   int homeButtonTapAction = 0, homeButtonDoubleTapAction = 0, homeButtonLongPressAction = 0;
+  int shortPwrBtn = 0;
 } SETTINGS;
 struct HalHaptics {
   static void feedback(bool, bool, int) {}
@@ -54,7 +56,7 @@ bool MappedInputManager::mapButton(Button b, bool (HalGPIO::*fn)(uint8_t) const)
   return (gpio.*fn)(static_cast<uint8_t>(b));
 }
 bool MappedInputManager::wasBackGesture() const { return false; }
-MappedInputManager::SwipeDir MappedInputManager::wasSwipe() const { return SwipeDir::None; }
+MappedInputManager::SwipeDir MappedInputManager::wasSwipe(int*, int*) const { return SwipeDir::None; }
 """ + "\n".join(methods) + r"""
 int main() {
   HalGPIO gpio;

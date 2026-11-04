@@ -3,16 +3,18 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "fontIds.h"
+
 // Reader font size is stored as an actual point size (see CrossPointSettings::
 // fontPointSize), not an abstract Small/Medium/Large slot.
 //
 // The Korean build does not use upstream's SD-card font registry to enumerate
-// installed point sizes: its reader font is Pretendard 14pt or a single-size SD
+// installed point sizes: its reader font is Pretendard 10pt or a single-size SD
 // .epdfont picked in FontSelectionActivity. Only the built-in set below is
 // selectable, so the registry-aware readerFontPointSizes() upstream ships is
 // not carried here.
 
-// The built-in Noto Serif / Noto Sans families are compiled in at exactly these
+// The built-in Noto Sans family is compiled in at exactly these
 // point sizes (see the global font objects in main.cpp).
 inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14, 16, 18};
 

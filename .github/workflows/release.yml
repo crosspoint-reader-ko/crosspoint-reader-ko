@@ -5,13 +5,15 @@ name: Compile Release
 # triggers on `release: published`; this fork creates the release from the tag push so
 # docs/release-notes/<tag>.md becomes the release body.
 #
-# Assets per board (device = x3-x4 | sticky | x4pro | x4c | papermono):
+# Assets per board (device = x3-x4 | sticky | x4pro | x4c | papermono | metalio_eink4 | eego_a4 | picco):
 #   crosspoint-<tag>-<device>.bin      - OTA / SD-update image, looked up by 1.6.x-ko firmware
 #                                        (upstream's per-board naming, #3493)
 #   CrossPoint-<tag>-<device>-full.bin - merged full-flash image (bootloader+partitions+app).
 #                                        The -full suffix is required: GitHub asset names are
 #                                        case-insensitive, so CrossPoint-<tag>-<device>.bin would
 #                                        collide with the OTA asset above.
+#                                        Not built for picco: it installs into the vendor `app` slot
+#                                        (partitions_picco.csv) and keeps the stock bootloader.
 # X3/X4 only, kept for older tooling:
 #   firmware.bin                       - OTA asset for 1.5.x-ko devices (legacy name, keep)
 #   CrossPoint-<tag>.bin               - merged image under the pre-1.6.5 name (web flasher)
@@ -22,6 +24,9 @@ name: Compile Release
 #                                        one width, KoPub's are full-width), the built-in reader font up
 #                                        to 1.6.5-ko.3. Copy to /fonts on the SD card and pick it in
 #                                        Settings > Reader font.
+#   Pretendard-14.epdfont              - Pretendard 14pt with KoPub Batang Light for the Hanja, the
+#                                        built-in reader font from 1.6.5-ko.4 to 1.6.5-ko.11. Same
+#                                        install as above.
 
 on:
   push:
@@ -53,6 +58,18 @@ jobs:
           - release_env: papermono-gh_release
             device: papermono
             chip: esp32s3
+          - release_env: metalio_eink4-gh_release
+            device: metalio_eink4
+            chip: esp32s3
+          - release_env: eego_a4-gh_release
+            device: eego_a4
+            chip: esp32s3
+          - release_env: picco-gh_release
+            device: picco
+            chip: esp32s3
+            # partitions_picco.csv: CrossPoint goes into the vendor 0xE70000 `app` slot.
+            ota_limit: '0xE70000'
+            no_full_image: true
     env:
       PIO_ENV: ${{ matrix.release_env }}
       BUILD_DIR: .pio/build/${{ matrix.release_env }}
@@ -109,14 +126,21 @@ jobs:
         ~/.platformio/penv/bin/pio --version
 
     - name: Build CrossPoint
-      run: pio run -e "$PIO_ENV" -j1
+      env:
+        # Upstream's LCP enrollment key. This fork has no such secret, so the flag stays unset.
+        FREEINK_LCP_RELEASE_KEY: ${{ secrets.FREEINK_LCP_RELEASE_KEY }}
+      run: |
+        if [ -n "$FREEINK_LCP_RELEASE_KEY" ]; then
+          export PLATFORMIO_BUILD_FLAGS="-DFREEINK_LCP_RELEASE_KEY=\\\"$FREEINK_LCP_RELEASE_KEY\\\""
+        fi
+        pio run -e "$PIO_ENV" -j1
 
     - name: Check firmware fits the stock OTA partition
       run: |
         # 0x640000 = stock Crosspoint OTA app slot (see docs/firmware-size-budget.md). Every
-        # board uses the same partitions.csv.
+        # board but picco uses the same partitions.csv.
         size=$(stat -c %s "$BUILD_DIR/firmware.bin")
-        limit=$((0x640000))
+        limit=$((${{ matrix.ota_limit || '0x640000' }}))
         echo "${{ matrix.device }} firmware.bin: $size bytes (limit $limit)"
         if [ "$size" -gt "$limit" ]; then
           echo "::error::${{ matrix.device }} firmware.bin ($size) exceeds the stock OTA partition ($limit)"
@@ -129,14 +153,16 @@ jobs:
         version="${GITHUB_REF_NAME#v}"
         mkdir -p dist
         cp "$BUILD_DIR/firmware.bin" "dist/crosspoint-${version}-${{ matrix.device }}.bin"
-        esptool.py --chip ${{ matrix.chip }} merge_bin \
-          -o "dist/CrossPoint-${GITHUB_REF_NAME}-${{ matrix.device }}-full.bin" \
-          --flash_mode dio \
-          --flash_freq 80m \
-          --flash_size 16MB \
-          0x0 "$BUILD_DIR/bootloader.bin" \
-          0x8000 "$BUILD_DIR/partitions.bin" \
-          0x10000 "$BUILD_DIR/firmware.bin"
+        if [ "${{ matrix.no_full_image }}" != "true" ]; then
+          esptool.py --chip ${{ matrix.chip }} merge_bin \
+            -o "dist/CrossPoint-${GITHUB_REF_NAME}-${{ matrix.device }}-full.bin" \
+            --flash_mode dio \
+            --flash_freq 80m \
+            --flash_size 16MB \
+            0x0 "$BUILD_DIR/bootloader.bin" \
+            0x8000 "$BUILD_DIR/partitions.bin" \
+            0x10000 "$BUILD_DIR/firmware.bin"
+        fi
         if [ "${{ matrix.device }}" = "x3-x4" ]; then
           cp "$BUILD_DIR/firmware.bin" dist/firmware.bin
           cp "dist/CrossPoint-${GITHUB_REF_NAME}-x3-x4-full.bin" "dist/CrossPoint-${GITHUB_REF_NAME}.bin"
@@ -209,15 +235,31 @@ jobs:
           --additional-intervals 0xAC00,0xD7A3 \
           -o "$GITHUB_WORKSPACE/dist/KoPubBatang-14.epdfont"
 
+    - name: Build Pretendard SD font
+      run: |
+        set -euo pipefail
+        cd lib/EpdFont/scripts
+        python ttf_to_epdfont.py pretendard_14_regular 14 \
+          ../builtinFonts/source/Pretendard/Pretendard-Regular.ttf \
+          "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" --2bit \
+          --additional-intervals 0x1100,0x11FF \
+          --additional-intervals 0x3000,0x303F \
+          --additional-intervals 0x3130,0x318F \
+          --additional-intervals 0x4E00,0x9FFF \
+          --additional-intervals 0xAC00,0xD7A3 \
+          -o "$GITHUB_WORKSPACE/dist/Pretendard-14.epdfont"
+
     - name: Verify assets
       run: |
         set -euo pipefail
         version="${GITHUB_REF_NAME#v}"
-        for device in x3-x4 sticky x4pro x4c papermono; do
+        for device in x3-x4 sticky x4pro x4c papermono metalio_eink4 eego_a4 picco; do
           test -f "dist/crosspoint-${version}-${device}.bin"
+        done
+        for device in x3-x4 sticky x4pro x4c papermono metalio_eink4 eego_a4; do
           test -f "dist/CrossPoint-${GITHUB_REF_NAME}-${device}-full.bin"
         done
-        for f in firmware.bin "CrossPoint-${GITHUB_REF_NAME}.bin" bootloader.bin partitions.bin KoPubBatang-14.epdfont; do
+        for f in firmware.bin "CrossPoint-${GITHUB_REF_NAME}.bin" bootloader.bin partitions.bin KoPubBatang-14.epdfont Pretendard-14.epdfont; do
           test -f "dist/$f"
         done
         # GitHub compares asset names case-insensitively; two names that differ only in

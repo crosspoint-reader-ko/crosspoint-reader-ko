@@ -351,6 +351,17 @@ const UnifiedFontFamily* UnifiedFontFamily::familyForGlyph(uint32_t cp, EpdFontS
   return this;
 }
 
+const UnifiedFontFamily* UnifiedFontFamily::familyForGlyphMetrics(uint32_t cp, EpdFontStyle style,
+                                                                  EpdGlyph& solidFallback,
+                                                                  const EpdGlyph** outGlyph) const {
+  if (syntheticGlyph::isSolid(cp) && !hasCodepoint(cp, style)) {
+    const EpdGlyph* em = hasOwnGlyph('M', style) ? getOwnGlyph('M', style) : nullptr;
+    *outGlyph = syntheticGlyph::solidMetrics(cp, em, getAscender(style), solidFallback);
+    return this;
+  }
+  return familyForGlyph(cp, style, outGlyph);
+}
+
 const EpdGlyph* UnifiedFontFamily::getGlyph(uint32_t cp, EpdFontStyle style) const {
   // Fast path: no fallback → single lookup, byte-for-byte identical to the original behavior.
   if (!glyphFallback) {

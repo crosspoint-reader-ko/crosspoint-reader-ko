@@ -183,4 +183,5 @@ UI toggle available in Settings: "문자 단위 줄바꿈"
 - `Section.cpp/h` - Cache version bump
 - `ChapterHtmlSlimParser.cpp/h` - Pass setting to parser
 - `EpubReaderActivity.cpp` - Pass setting to Section
-- `TxtReaderActivity.cpp/h` - TXT reader support
+- `src/activities/reader/TxtReaderActivity.cpp` - TXT reader line breaking
+- `lib/Txt/TxtToHtml.cpp` - Markdown to HTML for the EPUB reader

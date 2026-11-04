@@ -117,11 +117,25 @@ class UnifiedFontFamily {
   // (it is a plain primary/fallback family), so the renderer can query its type/metrics
   // directly. Used by the text renderer for correct per-glyph bitmap + ascender + is2Bit.
   const UnifiedFontFamily* familyForGlyph(uint32_t cp, EpdFontStyle style, const EpdGlyph** outGlyph) const;
+  // familyForGlyph() for drawing: a solid block symbol (U+2588, U+25A0) neither family has comes
+  // back as &solidFallback (no bitmap; fill a rectangle), with the primary as its family.
+  const UnifiedFontFamily* familyForGlyphMetrics(uint32_t cp, EpdFontStyle style, EpdGlyph& solidFallback,
+                                                 const EpdGlyph** outGlyph) const;
 
   // Unified interface
   void getTextDimensions(const char* string, int* w, int* h, EpdFontStyle style = REGULAR) const;
   bool hasPrintableChars(const char* string, EpdFontStyle style = REGULAR) const;
   const EpdGlyph* getGlyph(uint32_t cp, EpdFontStyle style = REGULAR) const;
+  // getGlyph() plus the solid-symbol fallback of familyForGlyphMetrics().
+  const EpdGlyph* getGlyphMetrics(uint32_t cp, EpdGlyph& solidFallback, EpdFontStyle style = REGULAR) const {
+    const EpdGlyph* glyph = nullptr;
+    familyForGlyphMetrics(cp, style, solidFallback, &glyph);
+    return glyph;
+  }
+  // True when this family or its glyph fallback has a real glyph for cp.
+  bool hasCodepoint(uint32_t cp, EpdFontStyle style = REGULAR) const {
+    return hasOwnGlyph(cp, style) || (glyphFallback && glyphFallback->hasOwnGlyph(cp, style));
+  }
 
   // For SD fonts: get bitmap data (for flash fonts, use getData()->bitmap[offset])
   const uint8_t* getGlyphBitmap(uint32_t cp, EpdFontStyle style = REGULAR) const;

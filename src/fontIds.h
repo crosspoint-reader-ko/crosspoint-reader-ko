@@ -2,15 +2,15 @@
 #pragma once
 
 // --- Korean build primary fonts ---
-// UI font (Pretendard 10pt) - single font for all UI sizes
+// UI font: the built-in Pretendard 10pt (same font object as READER_FONT_ID) for all UI sizes.
 #define UI_FONT_ID (1983644244)
 #define SMALL_FONT_ID UI_FONT_ID
 #define UI_10_FONT_ID UI_FONT_ID
 #define UI_12_FONT_ID UI_FONT_ID
 
-// Korean EPUB reader font (Pretendard 14pt). SHA-256 of pretendard_14_regular.h, like build-font-ids.sh,
+// Korean EPUB reader font (Pretendard 10pt). First 31 bits of the SHA-256 of pretendard_10_regular.h,
 // so a font change also invalidates cached sections.
-#define READER_14_FONT_ID (1493194985)
+#define READER_FONT_ID (221050629)
 
 // Custom reader font loaded from SD card
 #define CUSTOM_FONT_ID (-999999)
@@ -27,7 +27,7 @@
 #define UI_FALLBACK_FONT_ID (-777777)
 
 // --- Upstream built-in reader font IDs (kept so upstream render/settings code compiles).
-// The Korean build does not load these font objects; the reader uses Pretendard 14pt / a custom
+// The Korean build does not load these font objects; the reader uses Pretendard 10pt / a custom
 // SD font instead (see CrossPointSettings::getReaderFontId and src/main.cpp font loading).
 // UI_10/UI_12/SMALL are intentionally NOT redefined here — the Korean Pretendard IDs above win.
 #define NOTOSERIF_12_FONT_ID (85340443)

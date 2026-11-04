@@ -4,6 +4,9 @@
 #pragma once
 #include <cstdint>
 
+// fontconvert.py, fontconvert_sdcard.py and the vector loader rasterize point sizes at this DPI.
+constexpr uint16_t FONT_RASTER_DPI = 150;
+
 /// Font metrics use "fixed-point 4" (4 fractional bits, i.e. 1/16-pixel
 /// resolution).  Both the 12.4 glyph advances (uint16_t) and the 4.4 kern
 /// values (int8_t) share the same 4 fractional bits, so they can be freely
@@ -222,3 +225,10 @@ typedef struct {
   const EpdLigaturePair* ligaturePairs;  ///< Sorted ligature pair table (nullptr if none)
   uint32_t ligaturePairCount;            ///< Number of entries in ligaturePairs
 } EpdFontData;
+
+// Solid Unicode symbols can be drawn as rectangles when the font lacks them.
+namespace syntheticGlyph {
+constexpr uint32_t FULL_BLOCK = 0x2588;
+constexpr uint32_t BLACK_SQUARE = 0x25A0;
+constexpr bool isSolid(uint32_t cp) { return cp == FULL_BLOCK || cp == BLACK_SQUARE; }
+}  // namespace syntheticGlyph

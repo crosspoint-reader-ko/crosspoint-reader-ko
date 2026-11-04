@@ -22,6 +22,7 @@ class FontCacheManager;
 #include <vector>
 
 #include "Bitmap.h"
+#include "FontVariantProvider.h"
 
 namespace glyphBitmap {
 struct Frame;
@@ -53,6 +54,7 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
+  uint32_t frameBufferLoans = 0;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
   uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
   uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
@@ -75,7 +77,7 @@ class GfxRenderer {
   mutable FontCacheManager* fontCacheManager_ = nullptr;
 
   // One-shot refresh promotion (see promoteNextRefresh). Mutable because
-  // displayBuffer() is const but must consume the flag.
+  // Display entry points are const but must consume the flag.
   mutable bool promotedRefreshPending_ = false;
   mutable HalDisplay::RefreshMode promotedRefresh_ = HalDisplay::FAST_REFRESH;
   // Swap in (and clear) the promoted mode, if one is pending.
@@ -100,6 +102,9 @@ class GfxRenderer {
   // Shared implementation behind both drawText overloads (Korean letter-spacing + upstream tracking).
   void drawTextImpl(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black,
                     EpdFontFamily::Style style, BidiUtils::BidiBaseDir baseDir, int8_t tracking) const;
+  // Sized variants of the reader font for CSS font-size runs (upstream mixed text sizes). The
+  // Korean build registers no provider, so every run keeps the section font.
+  FontVariantProvider fontVariantProvider_;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -166,6 +171,24 @@ class GfxRenderer {
                                   EpdFontFamily::Style /*style*/ = EpdFontFamily::REGULAR) {}
   bool isFontCacheScanning() const;
   const std::map<int, UnifiedFontSlot>& getFontMap() const { return fontMap; }
+  // Upstream .cpfont SD-font hooks. The Korean build has no .cpfont engine (SD .epdfont glyphs
+  // stay resident in UnifiedFontFamily), so no font is an SD card font and nothing needs loading.
+  static bool isSdCardFont(int /*fontId*/) { return false; }
+  static void ensureSdCardFontReady(int /*fontId*/, const char* /*utf8Text*/, uint8_t /*styleMask*/ = 0x0F) {}
+  static void ensureSdCardFontReady(int /*fontId*/, const char* const* /*segments*/, const size_t* /*segmentLens*/,
+                                    size_t /*segmentCount*/, bool /*includeSpace*/, bool /*includeHyphen*/,
+                                    uint8_t /*styleMask*/ = 0x0F, bool /*includeSmallCaps*/ = false) {}
+
+  void setFontVariantProvider(const FontVariantProvider& provider) { fontVariantProvider_ = provider; }
+  int resolveFontVariant(const int fontId, const float scale) const {
+    return fontVariantProvider_.resolveFont(fontId, scale);
+  }
+  // True when fontId is registered, loading it through the variant provider if needed.
+  bool ensureFontLoaded(const int fontId) const {
+    if (fontMap.count(fontId) != 0) return true;
+    return fontVariantProvider_.load && fontVariantProvider_.load(fontVariantProvider_.ctx, fontId) &&
+           fontMap.count(fontId) != 0;
+  }
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
@@ -179,7 +202,8 @@ class GfxRenderer {
   int getScreenHeight() const;
   void tapToLogical(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
-  // One-shot: the next displayBuffer()/displayBufferAsync() call uses `mode`
+  // One-shot: the next displayBuffer(), displayBufferAsync(), or
+  // displayGrayscaleBase() call uses `mode`
   // instead of what its caller asked for, then the override clears itself.
   // Lets a closing overlay (the control center's refresh tile) hand a
   // ghost-cleanup waveform to the repaint of whatever screen is underneath,
@@ -298,6 +322,13 @@ class GfxRenderer {
   // Korean letter-spacing overload (invariant).
   void drawText(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  // Draws one glyph at scale256/256 of its size with its baseline at baselineY (drop caps).
+  // Outlines are bilinearly resampled from the font bitmap, so no larger font is loaded.
+  // Returns the scaled advance in pixels.
+  int drawScaledCodepoint(int fontId, uint32_t cp, EpdFontFamily::Style style, int x, int baselineY,
+                          int scale256) const;
+  // Unscaled metrics for laying out drawScaledCodepoint: advance (12.4 fixed point) and top bearing.
+  bool getCodepointMetrics(int fontId, uint32_t cp, EpdFontFamily::Style style, int32_t& advanceFP, int& top) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).
   /// Using a single snap avoids the +/-1 px rounding error that arises when space advance and kern are
@@ -310,6 +341,7 @@ class GfxRenderer {
                       TextMeasureMode mode = TextMeasureMode::Layout) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  // Explicit line spacing scales font size; the one-argument form returns font metrics.
   int getLineHeight(int fontId, float compression) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
@@ -345,8 +377,8 @@ class GfxRenderer {
   // Active input encoding, used when drawing monochrome overlays into planes.
   bool grayPlanesAreAbsolute() const { return absoluteGrayPlanes; }
   // B/W pass: draw 2-bit image pixels as a 2x2 ordered dither instead of
-  // "any ink is black". Only for pages that get no grayscale pass, because
-  // overlay gray planes expect every gray pixel black in the base.
+  // "any ink is black". Only for pages that get no image grayscale pass,
+  // because overlay gray planes expect every gray pixel black in the base.
   void setDitherImagesInBw(bool enabled) { ditherImagesInBw = enabled; }
   bool imagesDitheredInBw() const { return ditherImagesInBw; }
 
@@ -384,6 +416,9 @@ class GfxRenderer {
   void releaseFrameBufferForBuild();
   bool restoreFrameBufferAfterBuild();
   bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+  // Bumped by every loan. A loan returns the buffer white, so a caller that ran code which may lend
+  // (e.g. a background chapter-build step) compares this to know the page it drew is gone.
+  uint32_t frameBufferLoanCount() const { return frameBufferLoans; }
 
   // RAII form of the loan above, for blocking build regions with early-return
   // error paths: restores on scope exit (or explicitly via end()). Display the

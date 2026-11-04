@@ -18,7 +18,21 @@ uint32_t readLe32(const uint8_t* p) {
 
 int loadBookProgress(const std::string& path) {
   uint8_t data[10]{};
-  if (FsHelpers::hasEpubExtension(path)) {
+  if (FsHelpers::hasTxtExtension(path)) {
+    // TxtReaderActivity progress.bin: magic "TXTP", version 2, file size at 5, byte offset at 33.
+    Txt txt(path, "/.crosspoint");
+    HalFile file;
+    uint8_t progress[41];
+    if (!Storage.openFileForRead("HOME", txt.getCachePath() + "/progress.bin", file) ||
+        file.read(progress, sizeof(progress)) != sizeof(progress))
+      return -1;
+    if (readLe32(progress) != 0x54585450 || progress[4] != 2) return -1;
+    const uint32_t size = readLe32(progress + 5);
+    const uint64_t offset = readLe32(progress + 33) | (uint64_t(readLe32(progress + 37)) << 32);
+    if (size == 0) return -1;
+    return std::min<int>(100, static_cast<int>(offset * 100ULL / size));
+  }
+  if (FsHelpers::hasReflowableBookExtension(path)) {
     // Metadata objects exceed the stack budget; only the featured book is loaded, once per entry.
     auto epub = makeUniqueNoThrow<Epub>(path, "/.crosspoint");
     if (!epub) {
@@ -53,25 +67,6 @@ int loadBookProgress(const std::string& path) {
     if (xtc->getPageCount() == 0) return -1;
     if (page >= xtc->getPageCount()) return 100;
     return xtc->calculateProgress(page);
-  }
-  if (FsHelpers::hasTxtExtension(path) || FsHelpers::hasMarkdownExtension(path)) {
-    Txt txt(path, "/.crosspoint");
-    HalFile file;
-    if (!Storage.openFileForRead("HOME", txt.getCachePath() + "/progress.bin", file) || file.read(data, 4) != 4)
-      return -1;
-    const uint32_t page = data[0] | (data[1] << 8);
-    HalFile index;
-    // TXT index v3: magic, version, file size, four layout fields, alignment, page count.
-    uint8_t header[30];
-    if (!Storage.openFileForRead("HOME", txt.getCachePath() + "/index.bin", index) ||
-        index.read(header, sizeof(header)) != sizeof(header))
-      return -1;
-    if (readLe32(header) != 0x54585449 || header[4] != 3) return -1;
-    const uint32_t pages = readLe32(header + 26);
-    if (pages == 0 || pages > (index.size() - sizeof(header)) / 4) return -1;
-    HalFile source;
-    if (!Storage.openFileForRead("HOME", path, source) || source.size() != readLe32(header + 5)) return -1;
-    return std::min<int>(100, static_cast<int>((page + 1) * 100ULL / pages));
   }
   return -1;
 }

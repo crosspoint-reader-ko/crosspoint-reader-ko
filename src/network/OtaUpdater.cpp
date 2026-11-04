@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <ReleaseJsonParser.h>
 #include <esp_wifi.h>
 // clang-format on
@@ -33,13 +34,18 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // on top of the TLS session's heap during the fetch; with -fno-exceptions an
   // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
   // User-Agent (see HttpDownloader).
-  ReleaseJsonParser releaseParser;
+  // Heap-allocated: the parser embeds a 2 KB JSON token buffer.
+  auto releaseParserPtr = makeUniqueNoThrow<ReleaseJsonParser>();
+  if (!releaseParserPtr) {
+    LOG_ERR("OTA", "OOM: release parser");
+    return OOM_ERROR;
+  }
+  ReleaseJsonParser& releaseParser = *releaseParserPtr;
   releaseParser.setFirmwareAssetName("");
   // Each board updates from crosspoint-<version>-<device>.bin. The combined
   // C3 image uses x3-x4; other asset suffixes match their firmware board tag.
   // Korean releases publish the X3/X4 image under both this name and the legacy
-  // firmware.bin (for 1.5.x-ko devices); other boards have no Korean asset and
-  // simply report no update.
+  // firmware.bin (for 1.5.x-ko devices). A board without a Korean asset reports no update.
   const bool isX4 = board_tag::boardNameLen() == 2 && memcmp(board_tag::boardName(), "x4", 2) == 0;
   char assetSuffix[20] = "-x3-x4";
   if (!isX4) {

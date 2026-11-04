@@ -16,6 +16,14 @@ class EpdFont {
   /// Unlike getGlyph(), this never falls back to the U+FFFD replacement glyph,
   /// so it can be used to decide whether a glyph-level fallback font is needed.
   bool hasGlyph(uint32_t cp) const;
+  /// Like getGlyph(), but supplies metrics for missing solid block symbols.
+  /// If the returned pointer is &solidFallback, draw a filled rectangle;
+  /// it has no bitmap. The caller owns the fallback storage.
+  const EpdGlyph* getGlyphMetrics(uint32_t cp, EpdGlyph& solidFallback) const;
+
+  /// Upstream name for hasGlyph(): interval coverage only, no replacement fallback. The Korean
+  /// build has no SD coverage handler, so the two are the same.
+  bool hasCodepoint(uint32_t cp) const { return hasGlyph(cp); }
 
   /// Returns the kerning adjustment (4.4 fixed-point in pixels) between two codepoints.
   /// Returns 0 if no kerning data exists for the pair.
@@ -29,3 +37,9 @@ class EpdFont {
   /// (possibly substituted) codepoint; advances text past consumed chars.
   uint32_t applyLigatures(uint32_t cp, const char*& text) const;
 };
+
+namespace syntheticGlyph {
+// Metrics for a solid symbol the font lacks, sized from the font's 'M' (may be null) and
+// ascender. Fills and returns &solidFallback, which has no bitmap: draw a filled rectangle.
+const EpdGlyph* solidMetrics(uint32_t cp, const EpdGlyph* emGlyph, int fontAscender, EpdGlyph& solidFallback);
+}  // namespace syntheticGlyph

@@ -163,7 +163,7 @@ void SleepImageSelectionActivity::loop() {
     }
   }
 
-  buttonNavigator.onNextRelease([this] { step(1); });
+  buttonNavigator.onRelease(ButtonNavigator::getNextButtons(), [this] { step(1); });
   buttonNavigator.onPreviousRelease([this] { step(-1); });
 }
 

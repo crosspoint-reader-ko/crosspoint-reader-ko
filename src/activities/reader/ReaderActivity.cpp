@@ -4,9 +4,13 @@
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <KOReaderDocumentId.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -16,6 +20,7 @@
 #include "TxtReaderActivity.h"
 #include "XtcReaderActivity.h"
 #include "components/UITheme.h"
+#include "util/PluginEvents.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                                std::string bookPath, const bool allowFastInitialRefresh)
@@ -32,9 +37,12 @@ std::unique_ptr<ReaderActivity> ReaderActivity::create(GfxRenderer& renderer, Ma
   std::unique_ptr<ReaderActivity> activity;
   if (FsHelpers::hasXtcExtension(path)) {
     activity = makeUniqueNoThrow<XtcReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh);
-  } else if (FsHelpers::hasTxtExtension(path) || FsHelpers::hasMarkdownExtension(path)) {
+  } else if (FsHelpers::hasTxtExtension(path)) {
+    // Korean: TXT keeps its own offset-based reader. A whole-file EPUB chapter
+    // made a percent jump re-layout the entire file.
     activity = makeUniqueNoThrow<TxtReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh);
   } else {
+    // EPUB and Markdown share the EPUB reader.
     activity = makeUniqueNoThrow<EpubReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh);
   }
 
@@ -47,6 +55,11 @@ std::unique_ptr<ReaderActivity> ReaderActivity::create(GfxRenderer& renderer, Ma
 void ReaderActivity::applyInitialOrientation() { ReaderUtils::applyOrientation(renderer, SETTINGS.orientation); }
 
 void ReaderActivity::disableFastInitialRefresh() { pagesUntilFullRefresh = 0; }
+
+void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
+  RenderLock lock(*this);
+  readerSession.noteTurn(forward, succeeded);
+}
 
 void ReaderActivity::onEnter() {
   Activity::onEnter();
@@ -69,13 +82,13 @@ void ReaderActivity::onEnter() {
 
   applyInitialOrientation();
 
-  // Korean: show a loading popup before parsing. EPUB/XTC/TXT initial parse can take several
+  // Korean: show a loading popup before parsing. EPUB/XTC initial parse can take several
   // seconds on large files, leaving the screen unchanged and making the device look frozen.
   // (EPUB additionally swaps it for the indexing popup on a first, uncached open.)
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
 
   if (!loadBook()) {
-    finish();
+    if (!handleLoadFailure()) finish();
     return;
   }
 
@@ -88,6 +101,8 @@ void ReaderActivity::rememberBookOnceRendered() {
   APP_STATE.openEpubPath = bookPath;
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(bookPath, getBookTitle(), getBookAuthor(), getBookThumbBmpPath());
+  const pluginevents::Var openVars[] = {{"book", bookPath.c_str()}};
+  pluginevents::emit(pluginevents::Event::ReaderOpen, openVars, 1);
 }
 
 void ReaderActivity::onExit() {
@@ -100,12 +115,59 @@ void ReaderActivity::onExit() {
 
   LOG_INF("MEM", "reader exit: free=%u max_block=%u", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 
+  // Flush BEFORE the ReaderExit event: the session's final progress must be
+  // durable before a subscriber can act on the exit notification.
+  flushReaderSession();
+
+  if (pluginevents::anySubscriber(pluginevents::Event::ReaderExit)) {
+    const ScreenshotInfo info = getScreenshotInfo();
+    char percent[8];
+    char endPercent[8];
+    snprintf(percent, sizeof(percent), "%d", info.progressPercent);
+    snprintf(endPercent, sizeof(endPercent), "%d", info.endProgressPercent);
+    const pluginevents::Var vars[] = {{"book", bookPath.c_str()}, {"percent", percent}, {"end_percent", endPercent}};
+    pluginevents::emit(pluginevents::Event::ReaderExit, vars, 3);
+  }
+
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
 
   endOfBookOptions.reset();
   endOfBookOptionsReady.store(false, std::memory_order_release);
+}
+
+void ReaderActivity::prepareForSleep() { flushReaderSession(); }
+
+void ReaderActivity::flushReaderSession() {
+  if (!readerSession.isEmitWorthy() || !pluginevents::anySubscriber(pluginevents::Event::ReaderSession)) {
+    readerSession.reset();
+    return;
+  }
+
+  const std::string document = KOReaderDocumentId::calculate(bookPath);
+  const bool validDocument =
+      document.size() == 32 && std::all_of(document.begin(), document.end(), [](const unsigned char c) {
+        return std::isdigit(c) || (c >= 'a' && c <= 'f');
+      });
+  if (validDocument) {
+    char startTime[24];
+    char endTime[24];
+    char duration[16];
+    char startProgress[8];
+    char endProgress[8];
+    snprintf(startTime, sizeof(startTime), "%lld", static_cast<long long>(readerSession.startTime()));
+    snprintf(endTime, sizeof(endTime), "%lld", static_cast<long long>(readerSession.endTime()));
+    snprintf(duration, sizeof(duration), "%lu", static_cast<unsigned long>(readerSession.durationSeconds()));
+    snprintf(startProgress, sizeof(startProgress), "%u", readerSession.startProgressBp());
+    snprintf(endProgress, sizeof(endProgress), "%u", readerSession.endProgressBp());
+    const pluginevents::Var vars[] = {{"book", bookPath.c_str()},       {"document", document.c_str()},
+                                      {"start_time", startTime},        {"end_time", endTime},
+                                      {"duration_seconds", duration},   {"start_progress_bp", startProgress},
+                                      {"end_progress_bp", endProgress}, {"progress_scale", "10000"}};
+    pluginevents::emit(pluginevents::Event::ReaderSession, vars, 8);
+  }
+  readerSession.reset();
 }
 
 bool ReaderActivity::handleBackNavigation() {
@@ -185,19 +247,10 @@ void ReaderActivity::loop() {
   const bool skip =
       !fromTilt && SETTINGS.longPressButtonBehavior == SETTINGS.CHAPTER_SKIP && heldMs >= ReaderUtils::SKIP_HOLD_MS;
 
-  if (prevTriggered) {
-    if (skip) {
-      skipPages(-10);
-    } else {
-      pageTurn(false);
-    }
-  } else {
-    if (skip) {
-      skipPages(10);
-    } else {
-      pageTurn(true);
-    }
-  }
+  const bool changed = skip ? skipPages(prevTriggered ? -10 : 10) : pageTurn(!prevTriggered);
+  // A skip is navigation, not reading: it never counts toward session dwell.
+  notePageTurn(!skip && !prevTriggered, changed);
+  if (changed && (touch.prev || touch.next)) haptic_feedback::touchAction(skip);
   requestUpdate();
 }
 
@@ -218,10 +271,12 @@ void ReaderActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     onEndOfBookRendered();
     markPageRendered();
+    readerSession.onRenderComplete(millis(), trustedtime::trustedNow(), getProgressBasisPoints());
     return;
   }
 
   renderBook();
+  readerSession.onRenderComplete(millis(), trustedtime::trustedNow(), getProgressBasisPoints());
 }
 
 bool ReaderActivity::handleForcedRefresh() {

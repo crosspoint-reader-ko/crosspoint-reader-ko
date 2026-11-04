@@ -24,28 +24,32 @@ size limit above.
 
 ## What gets us under the limit
 
-Korean fonts dominate the image. Since 1.6.5-ko.4 the built-in reader font is
+Korean fonts dominate the image. Since 2.0.0-ko.0 the one built-in font is
+Pretendard 10, used for the UI and as the default reader font. Like the earlier
+Pretendard 14 reader font it takes KoPub Batang as its glyph fallback: all 11,172
+Hangul syllables, the 4,620 Hanja and CJK symbols. Larger reading sizes come from
+SD-card fonts such as the release assets `KoPubBatang-14.epdfont` and `Pretendard-14.epdfont`.
+
+From 1.6.5-ko.4 to 1.6.5-ko.11 the built-in reader font was
 Pretendard 14 with KoPub Batang as its glyph fallback: every code point the old
 KoPub built-in carried (full Hangul, the 4,620 Hanja, CJK symbols), 2.5 MB of
 bitmaps against KoPub's 2.9 MB, because Pretendard's Hangul is lighter. KoPub Batang 14
 was the whole reader font until 1.6.5-ko.3; that freed the room for the Bluetooth
 page turner (BLE controller and NimBLE, ~400 KB). All-KoPub reading is published
-with every release as `KoPubBatang-14.epdfont` for SD-card use. Pretendard
-10 (the UI font) stays cut to KS X 1001, because a UI font only needs the syllables
-that appear in menus, titles and filenames.
+with every release as `KoPubBatang-14.epdfont` for SD-card use.
 
 | Cut | Where | Saving |
 |-----|-------|--------|
 | Reader font Hangul from Pretendard 14 instead of KoPub (Hanja still KoPub) | `convert-korean-builtin-fonts.sh` | **~330 KB** |
-| Pretendard UI font restricted to KS X 1001 Hangul | `convert-korean-builtin-fonts.sh` | **828 KB** |
+| One built-in font, Pretendard 10, for UI and reader (2.0.0-ko.0) | `convert-korean-builtin-fonts.sh` | **~1.5 MB** |
 | Drop Latin/Cyrillic hyphenation tries | `-DCP_HYPHENATION_LANGS=0` | ~310 KB |
 | Ship only Korean + English UI | only `english.yaml` + `korean.yaml` | ~184 KB |
 | Omit serial logging | no `-DENABLE_SERIAL_LOG` (`gh_release`) | ~27 KB |
 | Drop upstream's `.cpfont` SD font engine | deleted in the 1.5.0 merge | ~7 KB |
 
-### The Pretendard cut
+### The Pretendard 10 cut (1.5.0-ko.1 to 1.6.5-ko.11)
 
-Pretendard 10pt carried all 11,172 precomposed Hangul syllables for 1,070 KB.
+Until 2.0.0-ko.0 the UI used its own Pretendard 10pt font, next to the Pretendard 14 reader font. It carried all 11,172 precomposed Hangul syllables for 1,070 KB.
 Restricting it to the 2,350 syllables of KS X 1001 (the classic wansung set)
 leaves 222 KB of syllables plus 20 KB of interval table -- a net 828 KB. The
 syllables are scattered through U+AC00..U+D7A3, so they collapse into 1,613 short
@@ -81,6 +85,9 @@ for upstream parity; individual languages toggle with
 | 1.6.5-ko.3 + Bluetooth page turner, KoPub built in | 6,573,152 | **19,552 over** |
 | Pretendard 14 without Hanja (not shipped) | 5,367,312 | 1,186,288 under |
 | 1.6.5-ko.4 (Pretendard 14 + KoPub Hanja, Bluetooth) | 6,255,248 | 298,352 under |
+| 2.0.0-ko.0 merge, Pretendard 10 UI font kept (not shipped) | 6,667,248 | **113,648 over** |
+| 2.0.0-ko.0, UI on Pretendard 14 (not shipped: UI too large) | 6,335,664 | 217,936 under |
+| 2.0.0-ko.0 (Pretendard 10 only, full Hangul + Hanja) | 5,161,872 | 1,391,728 under |
 
 1.5.0-ko.0 shipped over the limit. That does not just force the two-step install
 for new users: **it breaks OTA for existing ones.** OTA and the SD-card update
@@ -90,9 +97,8 @@ an oversized image with `TOO_LARGE` (see `FirmwareFlasher.cpp`). Only a full
 flash changes the table, and some units have USB disabled, leaving them with no
 route at all. Hence 1.5.0-ko.1.
 
-Headroom is now ~291 KB on X3/X4; the tightest board is PaperMono (6,355,760 B, ~193 KB under). Before adding flash-resident data, rebuild `gh_release`
+Headroom is now ~1.39 MB on X3/X4 (2.0.0-ko.0). Before adding flash-resident data, rebuild `gh_release`
 and check `firmware.bin` against 6,553,600 bytes. Remaining levers, largest
-first: dropping the Pretendard 10 UI font and drawing the UI with Pretendard 14
-(~282 KB), excluding
+first: leaving out upstream plugins and GIF support, excluding
 X3-only code (tilt/gyro/NTP, currently always linked), and trimming the wolfSSL
 cipher set (~195 KB total, most of it needed for HTTPS).

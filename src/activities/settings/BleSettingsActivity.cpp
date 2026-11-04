@@ -19,10 +19,10 @@ enum class MenuAction : int16_t { Enable, Scan, Paired, Mapping };
 constexpr bleturner::Action MAP_ACTIONS[] = {bleturner::Action::NextPage,    bleturner::Action::PrevPage,
                                              bleturner::Action::NextChapter, bleturner::Action::PrevChapter,
                                              bleturner::Action::Confirm,     bleturner::Action::Back,
-                                             bleturner::Action::ReaderMenu};  // no clippings in this fork
-constexpr StrId MAP_LABELS[] = {StrId::STR_NEXT_PAGE,       StrId::STR_PREV_PAGE, StrId::STR_BT_NEXT_CHAPTER,
-                                StrId::STR_BT_PREV_CHAPTER, StrId::STR_CONFIRM,   StrId::STR_BACK,
-                                StrId::STR_READER_MENU};
+                                             bleturner::Action::ReaderMenu,  bleturner::Action::SaveQuote};
+constexpr StrId MAP_LABELS[] = {StrId::STR_NEXT_PAGE,       StrId::STR_PREV_PAGE,    StrId::STR_BT_NEXT_CHAPTER,
+                                StrId::STR_BT_PREV_CHAPTER, StrId::STR_CONFIRM,      StrId::STR_BACK,
+                                StrId::STR_READER_MENU,     StrId::STR_SAVE_CLIPPING};
 static_assert(std::size(MAP_ACTIONS) == std::size(MAP_LABELS));
 constexpr uint32_t SCAN_MS = 15000;
 constexpr unsigned long CLEAR_HOLD_MS = 700;
@@ -30,6 +30,7 @@ constexpr unsigned long CLEAR_HOLD_MS = 700;
 
 void BleSettingsActivity::onEnter() {
   UiListActivity::onEnter();
+  radioVisit = activityManager.visit();
   // A saved opt-in brings the radio up here, so scanning and pairing work at once.
   if (SETTINGS.ble.enabled) bleturner::switchOn();
   refresh();
@@ -37,6 +38,12 @@ void BleSettingsActivity::onEnter() {
 }
 
 void BleSettingsActivity::loop() {
+  // Pushed panels stop the radio; returning here does not call onEnter().
+  const uint32_t currentVisit = activityManager.visit();
+  if (radioVisit != currentVisit) {
+    radioVisit = currentVisit;
+    if (SETTINGS.ble.enabled) bleturner::switchOn();
+  }
   // Holding Confirm on an action clears it (touch: a long press on the row, onRowLongPress).
   if (view == View::Mapping && mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, CLEAR_HOLD_MS)) {
     clearMapping(nav.selected);
