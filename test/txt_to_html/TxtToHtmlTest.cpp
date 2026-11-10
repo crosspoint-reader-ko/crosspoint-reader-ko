@@ -36,7 +36,8 @@ std::string convert(std::string_view content) {
 TEST(TxtToHtmlTest, LeadingSpacesIndentation) {
   EXPECT_EQ(convert("  two spaces"), kHeader + "<p>&#160;&#160;two spaces</p>" + kFooter);
   EXPECT_EQ(convert("    four spaces"), kHeader + "<p>&#160;&#160;&#160;&#160;four spaces</p>" + kFooter);
-  EXPECT_EQ(convert("Line 1\n   three spaces"), kHeader + "<p>Line 1</p>\n<p>&#160;&#160;&#160;three spaces</p>" + kFooter);
+  EXPECT_EQ(convert("Line 1\n   three spaces"),
+            kHeader + "<p>Line 1</p>\n<p>&#160;&#160;&#160;three spaces</p>" + kFooter);
 }
 
 TEST(TxtToHtmlTest, MidLineConsecutiveSpaces) {

@@ -13,8 +13,8 @@
 #include "ReaderUtils.h"
 #include "activities/settings/ReaderOptionsActivity.h"
 #include "components/UITheme.h"
-#include "util/ReadingStats.h"
 #include "util/PluginEvents.h"
+#include "util/ReadingStats.h"
 #include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
