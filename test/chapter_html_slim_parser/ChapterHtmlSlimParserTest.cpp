@@ -1937,9 +1937,24 @@ TEST(ParagraphIndentation, OverridesNonnegativeCssAndPreservesHangingIndent) {
       bool sawLine = false;
       text.layoutAndExtractLines(renderer, 0, 200, [&](std::unique_ptr<TextBlock> line, auto) {
         sawLine = true;
-        EXPECT_EQ(line->wordXpos(0), cssIndent < 0 ? cssIndent : 4 * spaces);
+        // Korean fork: a hanging indent is clamped to the block's left inset (0 here).
+        EXPECT_EQ(line->wordXpos(0), cssIndent < 0 ? 0 : 4 * spaces);
       });
       EXPECT_TRUE(sawLine);
+    }
+  }
+  {
+    // With a left inset to hang into, the hanging indent is kept, up to the inset.
+    for (const auto& [cssIndent, expected] : {std::pair{-6, -6}, std::pair{-30, -10}}) {
+      BlockStyle style;
+      style.alignment = CssTextAlign::Left;
+      style.paddingLeft = 10;
+      style.textIndentDefined = true;
+      style.textIndent = static_cast<int16_t>(cssIndent);
+      ParsedText text(false, false, false, false, style, 2);
+      text.addWord("word", EpdFontFamily::REGULAR);
+      text.layoutAndExtractLines(
+          renderer, 0, 200, [&](std::unique_ptr<TextBlock> line, auto) { EXPECT_EQ(line->wordXpos(0), expected); });
     }
   }
   for (uint8_t spaces : {0, 2}) {

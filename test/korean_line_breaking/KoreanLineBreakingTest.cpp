@@ -97,12 +97,12 @@ TEST(KoreanLineBreaking, HyphenationOnSplitsBetweenDigitAndHangul) {
 
 namespace {
 
-// First line of a paragraph laid out with the Korean paragraphIndent setting on.
+// First line of a paragraph laid out with a two-space paragraph indent.
 std::vector<Line> layoutIndented(const bool characterWrap) {
   GfxRenderer renderer;
   BlockStyle style;
   style.alignment = CssTextAlign::Justify;
-  ParsedText text(/*paragraphIndent=*/true, characterWrap, false, false, style);
+  ParsedText text(/*paragraphIndent=*/true, characterWrap, false, false, style, /*paragraphIndentSpaces=*/2);
   for (const char* word : {"가나", "다라", "마바", "사아", "자차"}) text.addWord(word, EpdFontFamily::REGULAR);
   std::vector<Line> lines;
   text.layoutAndExtractLines(renderer, 0, 60, [&](std::unique_ptr<TextBlock> block, auto) {
@@ -119,18 +119,23 @@ constexpr const char* IDEOGRAPHIC_SPACE = "\xe3\x80\x80";
 
 }  // namespace
 
-TEST(KoreanParagraphIndent, CharacterWrapPrefixesFirstWord) {
+// The indent is a first-line offset in both layouts; the retired U+3000 prefix must not return.
+TEST(KoreanParagraphIndent, CharacterWrapIndentsFirstLine) {
   const auto lines = layoutIndented(true);
-  ASSERT_FALSE(lines.empty());
+  ASSERT_GE(lines.size(), 2u);
   ASSERT_FALSE(lines[0].words.empty());
-  EXPECT_EQ(lines[0].words[0].rfind(IDEOGRAPHIC_SPACE, 0), 0u);
+  EXPECT_NE(lines[0].words[0].rfind(IDEOGRAPHIC_SPACE, 0), 0u);
+  EXPECT_GT(lines[0].xpos[0], 0);
+  EXPECT_EQ(lines[1].xpos[0], 0);
 }
 
-TEST(KoreanParagraphIndent, WordWrapPrefixesFirstWord) {
+TEST(KoreanParagraphIndent, WordWrapIndentsFirstLine) {
   const auto lines = layoutIndented(false);
-  ASSERT_FALSE(lines.empty());
+  ASSERT_GE(lines.size(), 2u);
   ASSERT_FALSE(lines[0].words.empty());
-  EXPECT_EQ(lines[0].words[0].rfind(IDEOGRAPHIC_SPACE, 0), 0u);
+  EXPECT_NE(lines[0].words[0].rfind(IDEOGRAPHIC_SPACE, 0), 0u);
+  EXPECT_GT(lines[0].xpos[0], 0);
+  EXPECT_EQ(lines[1].xpos[0], 0);
 }
 
 TEST(KoreanLineBreaking, MixedScriptsKeepBoundariesTouchingHangulTogether) {
