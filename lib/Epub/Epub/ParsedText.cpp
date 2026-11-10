@@ -835,12 +835,27 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // Upstream character spacing (tracking) is drawn between every pair of non-space glyphs in a
     // run, so the run's width grows by tracking * (glyph pairs).
     const auto measure = [&](const std::string& token, const EpdFontFamily::Style style) {
+      // Super/subscripts are drawn at half size; only the advance path scales the width.
+      if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
+        return renderer.getTextAdvanceX(fontId, token.c_str(), style, blockStyle.characterSpacing);
+      }
       int width = renderer.getTextWidth(fontId, token.c_str(), style);
       if (blockStyle.characterSpacing != 0) {
         const uint32_t cps = countCodepoints(token);
         if (cps > 1) width += blockStyle.characterSpacing * static_cast<int>(cps - 1);
       }
       return width;
+    };
+
+    // Body runs are measured by ink box (no trailing bearing), so a super/subscript glued to
+    // one would touch it. The pad is added to the body run's width; that entry is never
+    // re-measured afterwards because coalescing only extends the last entry.
+    const auto isScript = [](const EpdFontFamily::Style st) {
+      return (st & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
+    };
+    const auto scriptPad = [&](const EpdFontFamily::Style style, const bool gapBefore) {
+      if (lineWordsVec.empty() || gapBefore || !isScript(style) || isScript(lineWordStylesVec.back())) return 0;
+      return std::max(2, spaceWidth / 3);
     };
 
     // Appends a token and keeps totalWordWidth in sync. Glued tokens are concatenated onto the
@@ -856,6 +871,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         totalWordWidth += lineWordWidths.back();
         return;
       }
+      const int pad = scriptPad(style, gapBefore);
+      if (pad != 0) lineWordWidths.back() += pad;  // pad is 0 on an empty line
+      totalWordWidth += pad;
       const int width = measure(token, style);
       lineWordsVec.push_back(token);
       lineWordWidths.push_back(width);
@@ -878,10 +896,10 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     while (!frontExhausted()) {
       const std::string& word = frontWord();
       const EpdFontFamily::Style wordStyle = frontStyle();
-      const int wordWidth = measure(word, wordStyle);
-
       // Calculate what spacing would be if we add this word
       const bool wantsGap = !lineWordsVec.empty() && !suppressNextGap && frontGapBefore();
+      const int scriptGap = scriptPad(wordStyle, wantsGap);
+      const int wordWidth = measure(word, wordStyle) + scriptGap;
       int newTotalWidth = totalWordWidth + wordWidth;
       int newGapCount = fillGapCount(wantsGap);  // stretchable gaps after adding
       int newSpareSpace = pageWidth - newTotalWidth;
@@ -945,7 +963,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         int currentGapCount = fillGapCount(wantsGap);
         // We want: (pageWidth - totalWordWidth - partialWidth) / currentGapCount >= minSpacing
         // So: partialWidth <= pageWidth - totalWordWidth - currentGapCount * minSpacing
-        int maxPartialWidth = pageWidth - totalWordWidth - currentGapCount * minSpacing;
+        int maxPartialWidth = pageWidth - totalWordWidth - currentGapCount * minSpacing - scriptGap;
 
         if (maxPartialWidth > 0) {
           auto chars = splitUtf8Chars(word);
@@ -1123,9 +1141,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         }
       }
 
-      BlockStyle lineBlockStyle;
+      // Copy the block style: the page builder offsets each line by its left inset.
+      BlockStyle lineBlockStyle = blockStyle;
       lineBlockStyle.alignment = isLastLine ? CssTextAlign::Left : CssTextAlign::Justify;
-      lineBlockStyle.characterSpacing = blockStyle.characterSpacing;
       const size_t lineTokens = lineWords.size();
       auto block = makeUniqueNoThrow<TextBlock>(lineWords, lineXPos, lineWordStyles, std::vector<uint8_t>{},
                                                 std::vector<uint16_t>{}, lineBlockStyle, std::vector<std::string>{},
@@ -1195,7 +1213,10 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
   if (firstLineConsumed || !isFirstLine || !isNaturalAlign) {
     return 0;
   }
-  if (blockStyle.textIndentDefined && blockStyle.textIndent < 0) return blockStyle.textIndent;
+  // A hanging indent may not reach past the block's left inset, or the line starts off-page.
+  if (blockStyle.textIndentDefined && blockStyle.textIndent < 0) {
+    return std::max<int>(blockStyle.textIndent, -blockStyle.leftInset());
+  }
   if (paragraphIndentSpaces == 0) return 0;
   return scaleSpace(renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR), wordSpacingPercent) * paragraphIndentSpaces;
 }

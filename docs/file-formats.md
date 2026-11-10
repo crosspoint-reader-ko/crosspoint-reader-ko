@@ -90,6 +90,17 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Versions 101 and 102 (Korean fork)
+
+Both keep the version 100 header. They only invalidate older caches because the
+character-wrap layout changed:
+
+- 101: the first-line indent (`paragraphIndentSpaces`) is applied.
+- 102: superscript/subscript runs are measured at their drawn width, each line
+  keeps the block's left inset, a small gap precedes a superscript/subscript
+  glued to body text, and a hanging indent is clamped to the left inset (this
+  last change also affects the word-wrap layout).
+
 ### Version 100 (Korean fork)
 
 Version 100 is the Korean fork's layout after the upstream 2.0.0 merge. The

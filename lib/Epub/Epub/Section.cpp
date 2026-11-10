@@ -100,7 +100,10 @@ namespace {
 //      sequence (which reused 49 for a pre-release layout) never reaches a KO number.
 // v101 (KO): character-wrap layout applies the paragraphIndentSpaces first-line indent; the
 //      Korean U+3000 indent toggle is retired. Same header as v100.
-constexpr uint8_t SECTION_FILE_VERSION = 101;
+// v102 (KO): character-wrap layout measures superscript/subscript runs at their drawn
+//      (scaled) width, keeps the block's left inset on every line, and leaves a small
+//      gap before a glued super/subscript. A hanging indent is clamped to the left inset.
+constexpr uint8_t SECTION_FILE_VERSION = 102;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
