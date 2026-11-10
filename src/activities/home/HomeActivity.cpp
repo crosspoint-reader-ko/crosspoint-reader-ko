@@ -199,7 +199,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
         if (FsHelpers::hasReflowableBookExtension(book.path) && !FsHelpers::hasTxtExtension(book.path)) {
           Epub epub(book.path, "/.crosspoint");
           // Skip loading css since we only need metadata here
-          epub.load(false, true);
+          const bool cacheLoaded = epub.load(false, true);
 
           // Try to generate thumbnail image for Continue Reading card
           if (!showingLoading) {
@@ -209,7 +209,11 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
           // Korean: a failed generation (often a transient OOM) must not erase the persisted
           // cover path; the next visit retries instead of losing the thumbnail for good.
-          if (!epub.generateThumbBmp(thumbHeight)) {
+          // With the book cache gone (reader menu: delete cache) there is no cached metadata,
+          // so read the cover location straight from the EPUB.
+          const bool thumbReady =
+              cacheLoaded ? epub.generateThumbBmp(thumbHeight) : epub.generateThumbBmpFromSource(thumbHeight);
+          if (!thumbReady) {
             LOG_ERR("HOME", "EPUB thumb generation failed: %s", book.path.c_str());
           }
           coverRendered = false;
@@ -273,9 +277,8 @@ void HomeActivity::onEnter() {
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE
-                      ? (dosTheme ? base : 0)
-                      : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? (dosTheme ? base : 0)
+                                                        : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
 
   // Trigger first update
   requestUpdate();
